@@ -200,6 +200,12 @@ func (s *Service) Execute(ctx context.Context, run models.BuildRun, project mode
 	return run
 }
 
+// BuildComponent executes one component and validates its output directory.
+// It is used by the build-only run and by the build-and-package pipeline.
+func (s *Service) BuildComponent(ctx context.Context, run models.BuildRun, project models.Project, component models.Component, emit EventSink) models.BuildResult {
+	return s.buildComponent(ctx, run, component, emit)
+}
+
 func (s *Service) buildComponent(ctx context.Context, run models.BuildRun, component models.Component, emit EventSink) models.BuildResult {
 	start := time.Now()
 	result := models.BuildResult{

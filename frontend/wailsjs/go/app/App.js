@@ -14,6 +14,10 @@ export function DeleteProject(arg1) {
   return window['go']['app']['App']['DeleteProject'](arg1);
 }
 
+export function GetPackagePlan(arg1) {
+  return window['go']['app']['App']['GetPackagePlan'](arg1);
+}
+
 export function GetProject(arg1) {
   return window['go']['app']['App']['GetProject'](arg1);
 }
@@ -28,6 +32,14 @@ export function SaveProject(arg1) {
 
 export function StartBuild(arg1) {
   return window['go']['app']['App']['StartBuild'](arg1);
+}
+
+export function StartBuildAndPackage(arg1) {
+  return window['go']['app']['App']['StartBuildAndPackage'](arg1);
+}
+
+export function StartPackage(arg1) {
+  return window['go']['app']['App']['StartPackage'](arg1);
 }
 
 export function ValidateProject(arg1) {

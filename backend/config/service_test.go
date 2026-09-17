@@ -22,6 +22,7 @@ func testPaths(t *testing.T) Paths {
 		LogFile:        filepath.Join(base, "logs", "app.log"),
 		BuildLogFile:   filepath.Join(base, "logs", "builds.jsonl"),
 		PackageLogFile: filepath.Join(base, "logs", "packaging.jsonl"),
+		ReleaseDir:     filepath.Join(base, "releases"),
 	}
 }
 

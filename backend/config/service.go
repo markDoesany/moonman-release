@@ -30,6 +30,7 @@ type Paths struct {
 	LogFile        string
 	BuildLogFile   string
 	PackageLogFile string
+	ReleaseDir     string
 }
 
 // ResolvePaths selects the repository/app directory, with an override for tests and installations.
@@ -66,6 +67,7 @@ func ResolvePaths() (Paths, error) {
 		LogFile:        filepath.Join(logDir, "app.log"),
 		BuildLogFile:   filepath.Join(logDir, "builds.jsonl"),
 		PackageLogFile: filepath.Join(logDir, "packaging.jsonl"),
+		ReleaseDir:     filepath.Join(baseDir, "releases"),
 	}, nil
 }
 

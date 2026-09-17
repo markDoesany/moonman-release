@@ -13,6 +13,8 @@ import (
 	"release-launcher/backend/config"
 	"release-launcher/backend/logging"
 	"release-launcher/backend/models"
+	"release-launcher/backend/packaging"
+	"release-launcher/backend/pipeline"
 )
 
 // App is the small Wails-facing facade. Domain logic lives in backend services.
@@ -20,6 +22,8 @@ type App struct {
 	config       *config.Service
 	logger       *logging.Logger
 	buildService *build.Service
+	packager     *packaging.Service
+	pipeline     *pipeline.Service
 	loadErr      error
 
 	buildMu      sync.Mutex
@@ -38,10 +42,15 @@ func New() (*App, error) {
 	logger := logging.New(paths.LogFile)
 	service := config.NewService(paths, logger)
 	history := logging.NewJSONLWriter(paths.BuildLogFile)
+	packagingHistory := logging.NewJSONLWriter(paths.PackageLogFile)
+	packager := packaging.NewService(logger, packagingHistory, paths.ReleaseDir)
+	builder := build.NewService(logger, history)
 	return &App{
 		config:       service,
 		logger:       logger,
-		buildService: build.NewService(logger, history),
+		buildService: builder,
+		packager:     packager,
+		pipeline:     pipeline.NewService(builder, packager),
 	}, nil
 }
 
@@ -112,6 +121,111 @@ func (a *App) ValidateProject(project models.Project) []models.ValidationIssue {
 	return a.config.Validate([]models.Project{project})
 }
 
+// GetPackagePlan calculates output paths and overwrite conflicts without writing files.
+func (a *App) GetPackagePlan(request models.PackageRequest) (models.PackagePlan, error) {
+	if a.loadErr != nil {
+		return models.PackagePlan{}, fmt.Errorf("configuration unavailable: %w", a.loadErr)
+	}
+	if a.BuildRunning() {
+		return models.PackagePlan{}, errors.New("a build or packaging operation is already running")
+	}
+	project, err := a.config.Project(request.ProjectID)
+	if err != nil {
+		return models.PackagePlan{}, err
+	}
+	return a.packager.Plan(project, request.ComponentIDs, request.Version)
+}
+
+// StartPackage packages already-built output directories sequentially.
+func (a *App) StartPackage(request models.PackageRequest) (models.PackageRun, error) {
+	if a.loadErr != nil {
+		return models.PackageRun{}, fmt.Errorf("configuration unavailable: %w", a.loadErr)
+	}
+	a.buildMu.Lock()
+	defer a.buildMu.Unlock()
+	if a.activeCancel != nil {
+		return models.PackageRun{}, errors.New("a build or packaging operation is already running")
+	}
+	project, err := a.config.Project(request.ProjectID)
+	if err != nil {
+		return models.PackageRun{}, err
+	}
+	plan, err := a.packager.Plan(project, request.ComponentIDs, request.Version)
+	if err != nil {
+		return models.PackageRun{}, err
+	}
+	if plan.HasConflicts && !request.Overwrite {
+		return models.PackageRun{}, errors.New("one or more packages already exist; confirm replacement before packaging")
+	}
+	runID := a.nextRunID()
+	run, err := a.packager.PrepareRun(runID, project, request.ComponentIDs, plan.Version)
+	if err != nil {
+		return models.PackageRun{}, err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	a.activeRunID, a.activeCancel, a.activeDone = run.ID, cancel, done
+	eventContext := a.runtimeCtx
+	a.logger.Info(fmt.Sprintf("Packaging started: %s", project.Name))
+	go func() {
+		finalRun := a.packager.Execute(ctx, run, project, request.ComponentIDs, request.Overwrite, a.eventSink(eventContext))
+		if finalRun.Status == models.PackageRunStatusCompleted {
+			a.logger.Info(fmt.Sprintf("Packaging completed: %s", project.Name))
+		} else if finalRun.Status == models.PackageRunStatusCancelled {
+			a.logger.Info(fmt.Sprintf("Packaging cancelled: %s", project.Name))
+		} else {
+			a.logger.Error(fmt.Sprintf("Packaging failed: %s", project.Name))
+		}
+		a.releaseRun(run.ID, done)
+	}()
+	return run, nil
+}
+
+// StartBuildAndPackage runs each selected component through build then packaging.
+func (a *App) StartBuildAndPackage(request models.PackageRequest) (models.ReleaseRun, error) {
+	if a.loadErr != nil {
+		return models.ReleaseRun{}, fmt.Errorf("configuration unavailable: %w", a.loadErr)
+	}
+	a.buildMu.Lock()
+	defer a.buildMu.Unlock()
+	if a.activeCancel != nil {
+		return models.ReleaseRun{}, errors.New("a build or packaging operation is already running")
+	}
+	project, err := a.config.Project(request.ProjectID)
+	if err != nil {
+		return models.ReleaseRun{}, err
+	}
+	plan, err := a.packager.Plan(project, request.ComponentIDs, request.Version)
+	if err != nil {
+		return models.ReleaseRun{}, err
+	}
+	if plan.HasConflicts && !request.Overwrite {
+		return models.ReleaseRun{}, errors.New("one or more packages already exist; confirm replacement before building")
+	}
+	runID := a.nextRunID()
+	run, err := a.pipeline.PrepareRun(runID, project, request)
+	if err != nil {
+		return models.ReleaseRun{}, err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	a.activeRunID, a.activeCancel, a.activeDone = run.ID, cancel, done
+	eventContext := a.runtimeCtx
+	a.logger.Info(fmt.Sprintf("Build and package started: %s", project.Name))
+	go func() {
+		finalRun := a.pipeline.Execute(ctx, run, project, request, a.eventSink(eventContext))
+		if finalRun.Status == models.ReleaseRunStatusCompleted {
+			a.logger.Info(fmt.Sprintf("Build and package completed: %s", project.Name))
+		} else if finalRun.Status == models.ReleaseRunStatusCancelled {
+			a.logger.Info(fmt.Sprintf("Build and package cancelled: %s", project.Name))
+		} else {
+			a.logger.Error(fmt.Sprintf("Build and package failed: %s", project.Name))
+		}
+		a.releaseRun(run.ID, done)
+	}()
+	return run, nil
+}
+
 // StartBuild starts a sequential build and returns its initial state immediately.
 func (a *App) StartBuild(request models.BuildRequest) (models.BuildRun, error) {
 	if a.loadErr != nil {
@@ -165,6 +279,29 @@ func (a *App) StartBuild(request models.BuildRequest) (models.BuildRun, error) {
 	}()
 
 	return run, nil
+}
+
+func (a *App) nextRunID() string {
+	return fmt.Sprintf("run-%d-%d", time.Now().UnixNano(), a.runSequence.Add(1))
+}
+
+func (a *App) eventSink(eventContext context.Context) func(models.BuildEvent) {
+	return func(event models.BuildEvent) {
+		if eventContext != nil {
+			runtime.EventsEmit(eventContext, build.EventName, event)
+		}
+	}
+}
+
+func (a *App) releaseRun(runID string, done chan struct{}) {
+	a.buildMu.Lock()
+	defer a.buildMu.Unlock()
+	if a.activeRunID == runID {
+		a.activeRunID = ""
+		a.activeCancel = nil
+		a.activeDone = nil
+		close(done)
+	}
 }
 
 // CancelBuild requests cancellation of the active build.

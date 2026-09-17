@@ -8,6 +8,8 @@ export function CancelBuild(arg1:string):Promise<void>;
 
 export function DeleteProject(arg1:string):Promise<void>;
 
+export function GetPackagePlan(arg1:models.PackageRequest):Promise<models.PackagePlan>;
+
 export function GetProject(arg1:string):Promise<models.Project>;
 
 export function GetProjects():Promise<Array<models.Project>>;
@@ -15,5 +17,9 @@ export function GetProjects():Promise<Array<models.Project>>;
 export function SaveProject(arg1:models.Project):Promise<models.Project>;
 
 export function StartBuild(arg1:models.BuildRequest):Promise<models.BuildRun>;
+
+export function StartBuildAndPackage(arg1:models.PackageRequest):Promise<models.ReleaseRun>;
+
+export function StartPackage(arg1:models.PackageRequest):Promise<models.PackageRun>;
 
 export function ValidateProject(arg1:models.Project):Promise<Array<models.ValidationIssue>>;
