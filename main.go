@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"log"
 
@@ -28,7 +29,10 @@ func main() {
 		AssetServer: &assetserver.Options{Assets: assets},
 		OnStartup:   application.Startup,
 		OnShutdown:  application.Shutdown,
-		Bind:        []interface{}{application},
+		OnBeforeClose: func(_ context.Context) bool {
+			return application.BuildRunning()
+		},
+		Bind: []interface{}{application},
 	})
 	if err != nil {
 		log.Fatal(err)

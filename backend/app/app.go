@@ -2,18 +2,32 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
 
+	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"release-launcher/backend/build"
 	"release-launcher/backend/config"
 	"release-launcher/backend/logging"
 	"release-launcher/backend/models"
 )
 
-// App is the small Wails-facing facade. Domain logic lives in backend/config.
+// App is the small Wails-facing facade. Domain logic lives in backend services.
 type App struct {
-	config  *config.Service
-	logger  *logging.Logger
-	loadErr error
+	config       *config.Service
+	logger       *logging.Logger
+	buildService *build.Service
+	loadErr      error
+
+	buildMu      sync.Mutex
+	runtimeCtx   context.Context
+	activeRunID  string
+	activeCancel context.CancelFunc
+	activeDone   chan struct{}
+	runSequence  atomic.Uint64
 }
 
 func New() (*App, error) {
@@ -23,10 +37,18 @@ func New() (*App, error) {
 	}
 	logger := logging.New(paths.LogFile)
 	service := config.NewService(paths, logger)
-	return &App{config: service, logger: logger}, nil
+	history := logging.NewJSONLWriter(paths.BuildLogFile)
+	return &App{
+		config:       service,
+		logger:       logger,
+		buildService: build.NewService(logger, history),
+	}, nil
 }
 
-func (a *App) Startup(_ context.Context) {
+func (a *App) Startup(ctx context.Context) {
+	a.buildMu.Lock()
+	a.runtimeCtx = ctx
+	a.buildMu.Unlock()
 	a.logger.Info("Application started")
 	if err := a.config.Load(); err != nil {
 		a.loadErr = err
@@ -34,6 +56,16 @@ func (a *App) Startup(_ context.Context) {
 }
 
 func (a *App) Shutdown(_ context.Context) {
+	a.buildMu.Lock()
+	cancel := a.activeCancel
+	done := a.activeDone
+	a.buildMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		<-done
+	}
 	a.logger.Info("Application stopped")
 }
 
@@ -58,6 +90,9 @@ func (a *App) SaveProject(project models.Project) (models.Project, error) {
 	if a.loadErr != nil {
 		return models.Project{}, fmt.Errorf("configuration unavailable: %w", a.loadErr)
 	}
+	if err := a.ensureConfigEditable(); err != nil {
+		return models.Project{}, err
+	}
 	return a.config.SaveProject(project)
 }
 
@@ -66,10 +101,96 @@ func (a *App) DeleteProject(id string) error {
 	if a.loadErr != nil {
 		return fmt.Errorf("configuration unavailable: %w", a.loadErr)
 	}
+	if err := a.ensureConfigEditable(); err != nil {
+		return err
+	}
 	return a.config.DeleteProject(id)
 }
 
 // ValidateProject validates a project before it is saved.
 func (a *App) ValidateProject(project models.Project) []models.ValidationIssue {
 	return a.config.Validate([]models.Project{project})
+}
+
+// StartBuild starts a sequential build and returns its initial state immediately.
+func (a *App) StartBuild(request models.BuildRequest) (models.BuildRun, error) {
+	if a.loadErr != nil {
+		return models.BuildRun{}, fmt.Errorf("configuration unavailable: %w", a.loadErr)
+	}
+
+	a.buildMu.Lock()
+	defer a.buildMu.Unlock()
+	if a.activeCancel != nil {
+		return models.BuildRun{}, errors.New("a build is already running")
+	}
+	project, err := a.config.Project(request.ProjectID)
+	if err != nil {
+		return models.BuildRun{}, err
+	}
+	runID := fmt.Sprintf("build-%d-%d", time.Now().UnixNano(), a.runSequence.Add(1))
+	run, err := a.buildService.PrepareRun(runID, project, request.ComponentIDs)
+	if err != nil {
+		return models.BuildRun{}, err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	a.activeRunID = run.ID
+	a.activeCancel = cancel
+	a.activeDone = done
+	eventContext := a.runtimeCtx
+	a.logger.Info(fmt.Sprintf("Build started: %s", project.Name))
+
+	go func() {
+		finalRun := a.buildService.Execute(ctx, run, project, func(event models.BuildEvent) {
+			if eventContext != nil {
+				runtime.EventsEmit(eventContext, build.EventName, event)
+			}
+		})
+		switch finalRun.Status {
+		case models.BuildRunStatusCompleted:
+			a.logger.Info(fmt.Sprintf("Build completed: %s", project.Name))
+		case models.BuildRunStatusCancelled:
+			a.logger.Info(fmt.Sprintf("Build cancelled: %s", project.Name))
+		default:
+			a.logger.Error(fmt.Sprintf("Build failed: %s", project.Name))
+		}
+		a.buildMu.Lock()
+		if a.activeRunID == run.ID {
+			a.activeRunID = ""
+			a.activeCancel = nil
+			a.activeDone = nil
+			close(done)
+		}
+		a.buildMu.Unlock()
+	}()
+
+	return run, nil
+}
+
+// CancelBuild requests cancellation of the active build.
+func (a *App) CancelBuild(runID string) error {
+	a.buildMu.Lock()
+	defer a.buildMu.Unlock()
+	if a.activeCancel == nil {
+		return errors.New("no build is running")
+	}
+	if runID != "" && runID != a.activeRunID {
+		return fmt.Errorf("build %q is not running", runID)
+	}
+	a.activeCancel()
+	return nil
+}
+
+// BuildRunning reports whether the application currently owns an active build.
+func (a *App) BuildRunning() bool {
+	a.buildMu.Lock()
+	defer a.buildMu.Unlock()
+	return a.activeCancel != nil
+}
+
+func (a *App) ensureConfigEditable() error {
+	if a.BuildRunning() {
+		return errors.New("configuration cannot be changed while a build is running")
+	}
+	return nil
 }

@@ -1,4 +1,5 @@
 logs/*.log
+logs/*.jsonl
 configs/*.bak
 configs/*.tmp
 frontend/node_modules/
