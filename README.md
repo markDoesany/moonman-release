@@ -6,7 +6,7 @@ Release Launcher is a Windows desktop foundation for streamlining the developer 
 Build → Validate → Package → Send via Dali → Log Release
 ```
 
-Phase 2 adds the local build engine. Packaging and Dali sending remain intentionally reserved for later phases.
+Phase 3 adds local ZIP packaging after the Phase 2 build engine. Dali sending remains intentionally reserved for a later phase.
 
 ## Technology
 
@@ -63,7 +63,7 @@ The editable configuration is stored at:
 configs/projects.yaml
 ```
 
-The application creates the LokalStore sample configuration if the file is missing. A previous validated version is retained at `configs/projects.yaml.bak` after saves. Application events are appended to `logs/app.log`, while build attempts are appended as one JSON record per line to `logs/builds.jsonl`.
+The application creates the LokalStore sample configuration if the file is missing. A previous validated version is retained at `configs/projects.yaml.bak` after saves. Application events are appended to `logs/app.log`, while build and packaging attempts are appended as one JSON record per line to `logs/builds.jsonl` and `logs/packaging.jsonl`.
 
 Set `RELEASE_LAUNCHER_DATA_DIR` to use another configuration/log directory, for example during testing:
 
@@ -88,7 +88,15 @@ projects:
           filename: lokalstore-admin.zip
 ```
 
-Project and component IDs are generated for new records and remain stable when names are edited. Component paths must exist when a build starts. Build commands run from the component path using Windows `cmd.exe /d /s /c`, so commands such as `npm run build` work with the developer's normal PATH.
+Project and component IDs are generated for new records and remain stable when names are edited. Component paths must exist when a build starts. Build commands run from the component path using Windows `cmd.exe /d /s /c`, so commands such as `npm run build` work with the developer's normal PATH. Existing Phase 1 flat package fields are accepted and upgraded to the nested format when saved.
+
+Packages are written to:
+
+```text
+releases/<Project Name>/<Version>/<package filename>
+```
+
+The default UI version is `1.0.0`; leaving the version blank uses a timestamp. Existing ZIP files require explicit replacement confirmation. `Package Existing Build` packages a validated output directory without running the build command again.
 
 ## Current behavior
 
@@ -98,7 +106,8 @@ Project and component IDs are generated for new records and remain stable when n
 - Stdout and stderr stream into the build console while the process runs.
 - A successful command must produce its configured output directory.
 - A failed build stops later components; active builds can be cancelled.
-- No ZIP creation, Dali transfer, Git integration, database, authentication, cloud service, or remote API is included.
+- Build & Package runs each selected component through build, output validation, ZIP creation, and ZIP validation sequentially.
+- No Dali transfer, Git integration, database, authentication, cloud service, or remote API is included.
 
 ## Architecture
 
@@ -108,6 +117,8 @@ Configuration:  backend/config
 Models:         backend/models
 Logging:        backend/logging
 Build engine:   backend/build
+Packaging:      backend/packaging
+Pipeline:       backend/pipeline
 Frontend:       frontend/src
 Data:           configs/ and logs/
 ```
@@ -130,4 +141,4 @@ Build the Windows executable with:
 wails build -platform windows/amd64 -o release-launcher.exe
 ```
 
-The sample configuration uses placeholder paths. To exercise a real build, update a component path and command in Project Settings, then select the component and click Build Selected.
+The sample configuration uses placeholder paths. To exercise a real build, update a component path and command in Project Settings, then select the component and click Build Only or Build & Package. Package-only testing uses an existing configured output directory.

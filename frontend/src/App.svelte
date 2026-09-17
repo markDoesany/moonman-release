@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { EventsOn } from '../wailsjs/runtime/runtime';
-  import { CancelBuild, DeleteProject, GetProjects, SaveProject, StartBuild } from './backend';
-  import type { BuildEvent, BuildOutputLine, BuildRun, Component, Project, ValidationIssue } from './types';
+  import { CancelBuild, DeleteProject, GetPackagePlan, GetProjects, SaveProject, StartBuild, StartBuildAndPackage, StartPackage } from './backend';
+  import type { BuildEvent, BuildOutputLine, BuildRun, Component, PackageRun, PackageRequest, Project, ReleaseRun, ValidationIssue } from './types';
 
   type View = 'launcher' | 'settings';
+  type Operation = 'build' | 'package' | 'release';
 
   let projects: Project[] = [];
   let selectedProjectId = '';
@@ -15,8 +16,12 @@
   let settingsIsNew = false;
   let loading = true;
   let saving = false;
-  let buildStarting = false;
+  let operationStarting = false;
+  let operation: Operation | null = null;
   let buildRun: BuildRun | null = null;
+  let packageRun: PackageRun | null = null;
+  let releaseRun: ReleaseRun | null = null;
+  let packageVersion = '1.0.0';
   let buildOutput: BuildOutputLine[] = [];
   let pendingBuildEvents: BuildEvent[] = [];
   let errorMessage = '';
@@ -24,7 +29,7 @@
   let issues: ValidationIssue[] = [];
 
   $: selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
-  $: buildActive = buildStarting || buildRun?.status === 'running';
+  $: operationActive = operationStarting || buildRun?.status === 'running' || packageRun?.status === 'running' || releaseRun?.status === 'running';
 
   onMount(() => {
     const stopListening = EventsOn('release-launcher:build-event', (event: BuildEvent) => handleBuildEvent(event));
@@ -47,58 +52,121 @@
   }
 
   function selectProject(id: string) {
-    if (buildActive) return;
+    if (operationActive) return;
     selectedProjectId = id;
     selectedComponentIds = projects.find((project) => project.id === id)?.components.map((component) => component.id) ?? [];
   }
 
   function toggleComponent(component: Component) {
-    if (buildActive) return;
+    if (operationActive) return;
     selectedComponentIds = selectedComponentIds.includes(component.id)
       ? selectedComponentIds.filter((id) => id !== component.id)
       : [...selectedComponentIds, component.id];
   }
 
-  async function startBuild() {
-    if (!selectedProject || buildActive) return;
-    if (selectedComponentIds.length === 0) {
-      errorMessage = 'Select at least one component to build.';
-      return;
-    }
+  function prepareOperation(kind: Operation) {
     errorMessage = '';
     successMessage = '';
     buildOutput = [];
     pendingBuildEvents = [];
+    operation = kind;
+    operationStarting = true;
     buildRun = null;
-    buildStarting = true;
+    packageRun = null;
+    releaseRun = null;
+  }
+
+  function finishStarting(queuedEvents: BuildEvent[]) {
+    operationStarting = false;
+    pendingBuildEvents = [];
+    queuedEvents.forEach(applyBuildEvent);
+  }
+
+  async function startBuild() {
+    if (!selectedProject || operationActive) return;
+    if (selectedComponentIds.length === 0) {
+      errorMessage = 'Select at least one component to build.';
+      return;
+    }
+    prepareOperation('build');
     try {
       buildRun = await StartBuild({ projectId: selectedProject.id, componentIds: selectedComponentIds });
-      buildStarting = false;
-      const queuedEvents = pendingBuildEvents;
-      pendingBuildEvents = [];
-      queuedEvents.forEach(applyBuildEvent);
+      finishStarting(pendingBuildEvents);
     } catch (error) {
-      buildStarting = false;
-      pendingBuildEvents = [];
+      operationStarting = false;
       errorMessage = readableError(error);
     }
   }
 
-  async function cancelBuild() {
-    if (!buildRun) return;
+  async function startPackageExisting() {
+    if (!selectedProject || operationActive) return;
+    if (selectedComponentIds.length === 0) {
+      errorMessage = 'Select at least one component to package.';
+      return;
+    }
+    prepareOperation('package');
     try {
-      await CancelBuild(buildRun.id);
+      const initialRequest: PackageRequest = { projectId: selectedProject.id, componentIds: selectedComponentIds, version: packageVersion, overwrite: false };
+      const plan = await GetPackagePlan(initialRequest);
+      const overwrite = await confirmOverwrite(plan.hasConflicts, plan.releaseDirectory);
+      if (overwrite === null) {
+        operationStarting = false;
+        operation = null;
+        return;
+      }
+      packageRun = await StartPackage({ ...initialRequest, overwrite });
+      finishStarting(pendingBuildEvents);
+    } catch (error) {
+      operationStarting = false;
+      errorMessage = readableError(error);
+    }
+  }
+
+  async function startBuildAndPackage() {
+    if (!selectedProject || operationActive) return;
+    if (selectedComponentIds.length === 0) {
+      errorMessage = 'Select at least one component to build and package.';
+      return;
+    }
+    prepareOperation('release');
+    try {
+      const initialRequest: PackageRequest = { projectId: selectedProject.id, componentIds: selectedComponentIds, version: packageVersion, overwrite: false };
+      const plan = await GetPackagePlan(initialRequest);
+      const overwrite = await confirmOverwrite(plan.hasConflicts, plan.releaseDirectory);
+      if (overwrite === null) {
+        operationStarting = false;
+        operation = null;
+        return;
+      }
+      releaseRun = await StartBuildAndPackage({ ...initialRequest, overwrite });
+      finishStarting(pendingBuildEvents);
+    } catch (error) {
+      operationStarting = false;
+      errorMessage = readableError(error);
+    }
+  }
+
+  async function confirmOverwrite(hasConflicts: boolean, releaseDirectory: string): Promise<boolean | null> {
+    if (!hasConflicts) return false;
+    return window.confirm(`One or more packages already exist in ${releaseDirectory}. Replace them?`) ? true : null;
+  }
+
+  async function cancelOperation() {
+    const runID = buildRun?.id ?? packageRun?.id ?? releaseRun?.id;
+    if (!runID) return;
+    try {
+      await CancelBuild(runID);
     } catch (error) {
       errorMessage = readableError(error);
     }
   }
 
   function clearOutput() {
-    if (!buildActive) buildOutput = [];
+    if (!operationActive) buildOutput = [];
   }
 
   function handleBuildEvent(event: BuildEvent) {
-    if (buildStarting && !buildRun) {
+    if (operationStarting && !buildRun && !packageRun && !releaseRun) {
       pendingBuildEvents = [...pendingBuildEvents, event];
       return;
     }
@@ -106,42 +174,80 @@
   }
 
   function applyBuildEvent(event: BuildEvent) {
-    if (!buildRun || buildRun.id !== event.runId) return;
-    if (event.type === 'output' && event.text !== undefined) {
-      buildOutput = [...buildOutput, {
-        componentName: event.componentName ?? 'Build',
-        stream: event.stream ?? 'system',
-        text: event.text,
-      }];
-    }
-    if (event.componentId && event.status) {
-      buildRun = {
-        ...buildRun,
-        components: buildRun.components.map((component) => component.componentId === event.componentId
-          ? {
-              ...component,
-              status: event.status ?? component.status,
-              message: event.error || statusLabel(event.status ?? component.status),
-              result: event.result ?? component.result,
-            }
-          : component),
-      };
-    }
-    if (event.type === 'run_finished' && event.runStatus) {
-      buildRun = {
-        ...buildRun,
-        status: event.runStatus,
-        endTime: event.timestamp,
-        error: event.error,
-      };
-      if (event.runStatus === 'completed') successMessage = 'Build completed successfully.';
-      if (event.runStatus === 'failed') errorMessage = event.error || 'Build failed.';
-      if (event.runStatus === 'cancelled') errorMessage = 'Build cancelled.';
+    if (event.phase === 'package') {
+      applyPackageEvent(event);
+    } else if (event.phase === 'release') {
+      applyReleaseEvent(event);
+    } else {
+      applyBuildOnlyEvent(event);
     }
   }
 
+  function appendOutput(event: BuildEvent) {
+    if (event.type === 'output' && event.text !== undefined) {
+      buildOutput = [...buildOutput, { componentName: event.componentName ?? 'Build', stream: event.stream ?? 'system', text: event.text }];
+    }
+  }
+
+  function applyBuildOnlyEvent(event: BuildEvent) {
+    if (!buildRun || buildRun.id !== event.runId) return;
+    appendOutput(event);
+    if (event.componentId && event.status) {
+      buildRun = { ...buildRun, components: buildRun.components.map((component) => component.componentId === event.componentId
+        ? { ...component, status: event.status ?? component.status, message: event.error || statusLabel(event.status ?? component.status), result: event.result ?? component.result }
+        : component) };
+    }
+    if (event.type === 'run_finished' && event.runStatus) {
+      buildRun = { ...buildRun, status: event.runStatus, endTime: event.timestamp, error: event.error };
+      showRunMessage(event.runStatus, event.error);
+    }
+  }
+
+  function applyPackageEvent(event: BuildEvent) {
+    if (!packageRun || packageRun.id !== event.runId) return;
+    appendOutput(event);
+    if (event.componentId && event.packageStatus) {
+      packageRun = { ...packageRun, components: packageRun.components.map((component) => component.componentId === event.componentId
+        ? { ...component, status: event.packageStatus ?? component.status, message: event.error || statusLabel(event.packageStatus ?? component.status), result: event.packageResult ?? component.result }
+        : component) };
+    }
+    if (event.type === 'package_run_finished' && event.runStatus) {
+      packageRun = { ...packageRun, status: event.runStatus as PackageRun['status'], endTime: event.timestamp, error: event.error };
+      showRunMessage(event.runStatus, event.error);
+    }
+  }
+
+  function applyReleaseEvent(event: BuildEvent) {
+    if (!releaseRun || releaseRun.id !== event.runId) return;
+    appendOutput(event);
+    if (event.componentId && event.status) {
+      const messages = (event.error ?? '').split(' | ');
+      releaseRun = { ...releaseRun, components: releaseRun.components.map((component) => component.componentId === event.componentId
+        ? {
+            ...component,
+            buildStatus: event.status ?? component.buildStatus,
+            buildMessage: messages[0] || component.buildMessage,
+            buildResult: event.result ?? component.buildResult,
+            packageStatus: event.packageStatus ?? component.packageStatus,
+            packageMessage: messages[1] || component.packageMessage,
+            packageResult: event.packageResult ?? component.packageResult,
+          }
+        : component) };
+    }
+    if (event.type === 'release_run_finished' && event.runStatus) {
+      releaseRun = { ...releaseRun, status: event.runStatus as ReleaseRun['status'], endTime: event.timestamp, error: event.error };
+      showRunMessage(event.runStatus, event.error);
+    }
+  }
+
+  function showRunMessage(status: string, error?: string) {
+    if (status === 'completed') successMessage = 'Build and packaging completed successfully.';
+    if (status === 'failed') errorMessage = error || 'Build or packaging failed.';
+    if (status === 'cancelled') errorMessage = error || 'Operation cancelled.';
+  }
+
   function openNewProject() {
-    if (buildActive) return;
+    if (operationActive) return;
     settingsProject = { id: '', name: '', components: [] };
     settingsIsNew = true;
     issues = [];
@@ -150,7 +256,7 @@
   }
 
   function openProjectSettings(project: Project) {
-    if (buildActive) return;
+    if (operationActive) return;
     settingsProject = structuredClone(project);
     settingsIsNew = false;
     issues = [];
@@ -159,14 +265,14 @@
   }
 
   function closeSettings() {
-    if (buildActive) return;
+    if (operationActive) return;
     settingsProject = null;
     issues = [];
     view = 'launcher';
   }
 
   async function saveSettings() {
-    if (!settingsProject || buildActive) return;
+    if (!settingsProject || operationActive) return;
     saving = true;
     issues = [];
     errorMessage = '';
@@ -174,9 +280,7 @@
     try {
       const saved = await SaveProject(settingsProject);
       const index = projects.findIndex((project) => project.id === saved.id);
-      projects = index === -1
-        ? [...projects, saved]
-        : projects.map((project) => (project.id === saved.id ? saved : project));
+      projects = index === -1 ? [...projects, saved] : projects.map((project) => (project.id === saved.id ? saved : project));
       selectedProjectId = saved.id;
       selectedComponentIds = saved.components.map((component) => component.id);
       settingsProject = structuredClone(saved);
@@ -191,7 +295,7 @@
   }
 
   async function deleteSettingsProject() {
-    if (!settingsProject || settingsIsNew || buildActive) return;
+    if (!settingsProject || settingsIsNew || operationActive) return;
     if (!window.confirm(`Delete ${settingsProject.name}?`)) return;
     try {
       const deletedId = settingsProject.id;
@@ -207,59 +311,34 @@
   }
 
   function updateProjectName(name: string) {
-    if (settingsProject && !buildActive) settingsProject = { ...settingsProject, name };
+    if (settingsProject && !operationActive) settingsProject = { ...settingsProject, name };
   }
 
   function addComponent() {
-    if (!settingsProject || buildActive) return;
+    if (!settingsProject || operationActive) return;
     settingsProject = { ...settingsProject, components: [...settingsProject.components, emptyComponent()] };
   }
 
   function updateComponent(index: number, changes: Partial<Component>) {
-    if (!settingsProject || buildActive) return;
-    settingsProject = {
-      ...settingsProject,
-      components: settingsProject.components.map((component, componentIndex) =>
-        componentIndex === index ? { ...component, ...changes } : component,
-      ),
-    };
+    if (!settingsProject || operationActive) return;
+    settingsProject = { ...settingsProject, components: settingsProject.components.map((component, componentIndex) => componentIndex === index ? { ...component, ...changes } : component) };
   }
 
   function removeComponent(index: number) {
-    if (!settingsProject || buildActive) return;
-    settingsProject = {
-      ...settingsProject,
-      components: settingsProject.components.filter((_, componentIndex) => componentIndex !== index),
-    };
+    if (!settingsProject || operationActive) return;
+    settingsProject = { ...settingsProject, components: settingsProject.components.filter((_, componentIndex) => componentIndex !== index) };
   }
 
   function emptyComponent(): Component {
-    return { id: '', name: '', path: '', buildCommand: '', outputDirectory: '', packageEnabled: true, packageFilename: '' };
+    return { id: '', name: '', path: '', buildCommand: '', outputDirectory: '', package: { enabled: true, filename: '' } };
   }
 
-  function statusLabel(status: string): string {
-    return status.charAt(0).toUpperCase() + status.slice(1);
-  }
-
-  function statusIcon(status: string): string {
-    return { ready: '○', building: '⟳', success: '✓', failed: '✕', skipped: '—', cancelled: '!' }[status] ?? '○';
-  }
-
-  function inputValue(event: Event): string {
-    return (event.currentTarget as HTMLInputElement).value;
-  }
-
-  function checkedValue(event: Event): boolean {
-    return (event.currentTarget as HTMLInputElement).checked;
-  }
-
-  function selectValue(event: Event): string {
-    return (event.currentTarget as HTMLSelectElement).value;
-  }
-
-  function readableError(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
-  }
+  function statusLabel(status: string): string { return status.charAt(0).toUpperCase() + status.slice(1); }
+  function statusIcon(status: string): string { return { ready: '○', building: '⟳', success: '✓', failed: '✕', skipped: '—', cancelled: '!' }[status] ?? '○'; }
+  function inputValue(event: Event): string { return (event.currentTarget as HTMLInputElement).value; }
+  function checkedValue(event: Event): boolean { return (event.currentTarget as HTMLInputElement).checked; }
+  function selectValue(event: Event): string { return (event.currentTarget as HTMLSelectElement).value; }
+  function readableError(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 </script>
 
 <svelte:head><title>Release Launcher</title></svelte:head>
@@ -267,7 +346,7 @@
 <div class="shell">
   <header class="topbar">
     <div><p class="eyebrow">Developer release workspace</p><h1>Release Launcher</h1></div>
-    <button class="ghost-button" disabled={buildActive} on:click={() => (view = view === 'launcher' ? 'settings' : 'launcher')}>
+    <button class="ghost-button" disabled={operationActive} on:click={() => (view = view === 'launcher' ? 'settings' : 'launcher')}>
       {view === 'launcher' ? 'Project Settings' : 'Back to Launcher'}
     </button>
   </header>
@@ -280,96 +359,73 @@
   {:else if view === 'launcher'}
     <main class="card launcher-view">
       <div class="section-heading">
-        <div><p class="eyebrow">Phase 2 build engine</p><h2>Prepare a release</h2></div>
-        <span class:active={buildActive} class="status-pill">{buildActive ? 'Build in progress' : 'Build ready'}</span>
+        <div><p class="eyebrow">Phase 3 packaging engine</p><h2>Prepare a release</h2></div>
+        <span class:active={operationActive} class="status-pill">{operationActive ? 'Operation in progress' : 'Ready'}</span>
       </div>
 
-      <label class="field project-field"><span>Project</span>
-        <select value={selectedProjectId} disabled={buildActive} on:change={(event) => selectProject(selectValue(event))}>
-          {#if projects.length === 0}<option value="">No projects configured</option>{/if}
-          {#each projects as project}<option value={project.id}>{project.name}</option>{/each}
-        </select>
-      </label>
+      <div class="release-inputs">
+        <label class="field project-field"><span>Project</span>
+          <select value={selectedProjectId} disabled={operationActive} on:change={(event) => selectProject(selectValue(event))}>
+            {#if projects.length === 0}<option value="">No projects configured</option>{/if}
+            {#each projects as project}<option value={project.id}>{project.name}</option>{/each}
+          </select>
+        </label>
+        <label class="field version-field"><span>Release Version</span><input value={packageVersion} disabled={operationActive} on:input={(event) => (packageVersion = inputValue(event))} placeholder="1.0.0" /></label>
+      </div>
 
       {#if selectedProject}
         <div class="component-section">
-          <div class="section-heading compact"><div><h3>Components</h3><p>Select components to build sequentially.</p></div><button class="text-button" disabled={buildActive} on:click={() => openProjectSettings(selectedProject)}>Edit project</button></div>
+          <div class="section-heading compact"><div><h3>Components</h3><p>Select components for the release workflow.</p></div><button class="text-button" disabled={operationActive} on:click={() => openProjectSettings(selectedProject)}>Edit project</button></div>
           <div class="component-grid">
             {#each selectedProject.components as component}
-              <label class="component-option"><input type="checkbox" disabled={buildActive} checked={selectedComponentIds.includes(component.id)} on:change={() => toggleComponent(component)} /><span>{component.name}</span></label>
+              <label class="component-option"><input type="checkbox" disabled={operationActive} checked={selectedComponentIds.includes(component.id)} on:change={() => toggleComponent(component)} /><span>{component.name}</span></label>
             {:else}<p class="muted">No components configured.</p>{/each}
           </div>
         </div>
       {:else}<div class="empty-state">Add a project in Project Settings to begin.</div>{/if}
 
       <div class="action-row">
-        <button class="primary-button" disabled={buildActive || !selectedProject || selectedComponentIds.length === 0} on:click={startBuild}>{buildStarting ? 'Starting...' : 'Build Selected'}</button>
-        {#if buildActive && buildRun}<button class="danger-button" on:click={cancelBuild}>Cancel Build</button>{/if}
-        <button class="secondary-button" disabled>Build &amp; Send</button>
-        <button class="text-button clear-button" disabled={buildActive || buildOutput.length === 0} on:click={clearOutput}>Clear Output</button>
+        <button class="primary-button" disabled={operationActive || !selectedProject || selectedComponentIds.length === 0} on:click={startBuild}>Build Only</button>
+        <button class="secondary-button" disabled={operationActive || !selectedProject || selectedComponentIds.length === 0} on:click={startBuildAndPackage}>Build &amp; Package</button>
+        <button class="secondary-button" disabled={operationActive || !selectedProject || selectedComponentIds.length === 0} on:click={startPackageExisting}>Package Existing Build</button>
+        {#if operationActive && (buildRun || packageRun || releaseRun)}<button class="danger-button" on:click={cancelOperation}>Cancel</button>{/if}
+        <button class="text-button clear-button" disabled={operationActive || buildOutput.length === 0} on:click={clearOutput}>Clear Output</button>
       </div>
-      <p class="phase-note">Build and output validation are active. Packaging and Dali sending remain future phases.</p>
+      <p class="phase-note">Packages are written to releases/{selectedProject?.name ?? 'Project'}/{packageVersion || 'timestamp'}.</p>
 
-      {#if buildRun || buildStarting}
-        <section class="build-panel">
-          <div class="section-heading compact"><div><p class="eyebrow">Build Progress</p><h3>{buildRun?.projectName ?? selectedProject?.name}</h3></div><span class="run-status">{buildStarting ? 'Starting...' : statusLabel(buildRun?.status ?? 'running')}</span></div>
-          {#if buildRun}
-            <div class="build-progress">
-              {#each buildRun.components as state}
-                <div class="build-row">
-                  <div><strong>{state.componentName}</strong><small>{state.message}</small></div>
-                  <span class={`build-status status-${state.status}`}><b>{statusIcon(state.status)}</b>{statusLabel(state.status)}</span>
-                </div>
-              {/each}
-            </div>
-          {/if}
+      {#if buildRun}
+        <section class="build-panel"><div class="section-heading compact"><div><p class="eyebrow">Build Progress</p><h3>{buildRun.projectName}</h3></div><span class="run-status">{statusLabel(buildRun.status)}</span></div>
+          <div class="build-progress">{#each buildRun.components as state}<div class="build-row"><div><strong>{state.componentName}</strong><small>{state.message}</small></div><span class={`build-status status-${state.status}`}><b>{statusIcon(state.status)}</b>{statusLabel(state.status)}</span></div>{/each}</div>
+        </section>
+      {:else if packageRun}
+        <section class="build-panel"><div class="section-heading compact"><div><p class="eyebrow">Packaging Progress</p><h3>{packageRun.projectName} / {packageRun.version}</h3></div><span class="run-status">{statusLabel(packageRun.status)}</span></div>
+          <div class="build-progress">{#each packageRun.components as state}<div class="build-row"><div><strong>{state.componentName}</strong><small>{state.message}{state.result?.packagePath ? ` — ${state.result.packagePath}` : ''}</small></div><span class={`build-status status-${state.status}`}><b>{statusIcon(state.status)}</b>{statusLabel(state.status)}</span></div>{/each}</div>
+        </section>
+      {:else if releaseRun}
+        <section class="build-panel"><div class="section-heading compact"><div><p class="eyebrow">Build &amp; Packaging Progress</p><h3>{releaseRun.projectName} / {releaseRun.version}</h3></div><span class="run-status">{statusLabel(releaseRun.status)}</span></div>
+          <div class="build-progress">{#each releaseRun.components as state}<div class="build-row release-row"><div><strong>{state.componentName}</strong><small>Build: {state.buildMessage} · Package: {state.packageMessage}</small></div><span class="release-status"><i class={`build-status status-${state.buildStatus}`}>{statusIcon(state.buildStatus)} {statusLabel(state.buildStatus)}</i><i class={`build-status status-${state.packageStatus}`}>{statusIcon(state.packageStatus)} {statusLabel(state.packageStatus)}</i></span></div>{/each}</div>
         </section>
       {/if}
 
-      {#if buildOutput.length > 0}
-        <section class="console-panel">
-          <div class="section-heading compact"><div><p class="eyebrow">Build Output</p><h3>Live process console</h3></div></div>
-          <div class="build-console" aria-live="polite">
-            {#each buildOutput as line}
-              <div class:stderr={line.stream === 'stderr'} class="console-line"><span>[{line.componentName}]</span> {line.text}</div>
-            {/each}
-          </div>
-        </section>
-      {/if}
+      {#if buildOutput.length > 0}<section class="console-panel"><div class="section-heading compact"><div><p class="eyebrow">Build Output</p><h3>Live process console</h3></div></div><div class="build-console" aria-live="polite">{#each buildOutput as line}<div class:stderr={line.stream === 'stderr'} class="console-line"><span>[{line.componentName}]</span> {line.text}</div>{/each}</div></section>{/if}
     </main>
   {:else}
     <main class="settings-layout">
-      <aside class="card project-list">
-        <div class="section-heading compact"><h2>Projects</h2><button class="icon-button" disabled={buildActive} title="Add project" on:click={openNewProject}>+</button></div>
-        {#each projects as project}
-          <button class:active={settingsProject?.id === project.id} class="project-list-item" disabled={buildActive} on:click={() => openProjectSettings(project)}><span>{project.name}</span><small>{project.components.length} components</small></button>
-        {:else}<p class="muted">No projects yet.</p>{/each}
-      </aside>
-
-      <section class="card settings-editor">
-        {#if settingsProject}
-          <div class="section-heading"><div><p class="eyebrow">Project configuration</p><h2>{settingsIsNew ? 'Add project' : `Edit ${settingsProject.name}`}</h2></div>{#if !settingsIsNew}<button class="danger-button" disabled={buildActive} on:click={deleteSettingsProject}>Delete project</button>{/if}</div>
-          <label class="field"><span>Project Name</span><input disabled={buildActive} value={settingsProject.name} on:input={(event) => updateProjectName(inputValue(event))} placeholder="LokalStore" /></label>
-          {#if issues.length > 0}<div class="validation-box">{#each issues as issue}<p>{issue.field}: {issue.message}</p>{/each}</div>{/if}
-
-          <div class="section-heading compact components-heading"><div><h3>Components</h3><p>Configure build and future package inputs.</p></div><button class="text-button" disabled={buildActive} on:click={addComponent}>+ Add component</button></div>
-          {#each settingsProject.components as component, index}
-            <article class="component-editor">
-              <div class="component-editor-title"><h3>{component.name || 'New component'}</h3><button class="remove-button" disabled={buildActive} on:click={() => removeComponent(index)}>Remove</button></div>
-              <div class="form-grid">
-                <label class="field"><span>Component Name</span><input disabled={buildActive} value={component.name} on:input={(event) => updateComponent(index, { name: inputValue(event) })} /></label>
-                <label class="field"><span>Project Path</span><input disabled={buildActive} value={component.path} on:input={(event) => updateComponent(index, { path: inputValue(event) })} placeholder="C:\Projects\LokalStore\Admin" /></label>
-                <label class="field"><span>Build Command</span><input disabled={buildActive} value={component.buildCommand} on:input={(event) => updateComponent(index, { buildCommand: inputValue(event) })} placeholder="npm run build" /></label>
-                <label class="field"><span>Output Directory</span><input disabled={buildActive} value={component.outputDirectory} on:input={(event) => updateComponent(index, { outputDirectory: inputValue(event) })} placeholder="build" /></label>
-                <label class="field checkbox-field"><input type="checkbox" disabled={buildActive} checked={component.packageEnabled} on:change={(event) => updateComponent(index, { packageEnabled: checkedValue(event) })} /><span>Package Enabled</span></label>
-                <label class="field"><span>Package Filename</span><input disabled={buildActive} value={component.packageFilename} on:input={(event) => updateComponent(index, { packageFilename: inputValue(event) })} placeholder="component.zip" /></label>
-              </div>
-            </article>
-          {:else}<div class="empty-state">No components. Add the first component above.</div>{/each}
-
-          <div class="action-row settings-actions"><button class="secondary-button" disabled={buildActive} on:click={closeSettings}>Cancel</button><button class="primary-button" disabled={saving || buildActive} on:click={saveSettings}>{saving ? 'Saving...' : 'Save Project'}</button></div>
-        {:else}<div class="empty-state large">Select a project or add a new one.</div>{/if}
-      </section>
+      <aside class="card project-list"><div class="section-heading compact"><h2>Projects</h2><button class="icon-button" disabled={operationActive} title="Add project" on:click={openNewProject}>+</button></div>{#each projects as project}<button class:active={settingsProject?.id === project.id} class="project-list-item" disabled={operationActive} on:click={() => openProjectSettings(project)}><span>{project.name}</span><small>{project.components.length} components</small></button>{:else}<p class="muted">No projects yet.</p>{/each}</aside>
+      <section class="card settings-editor">{#if settingsProject}<div class="section-heading"><div><p class="eyebrow">Project configuration</p><h2>{settingsIsNew ? 'Add project' : `Edit ${settingsProject.name}`}</h2></div>{#if !settingsIsNew}<button class="danger-button" disabled={operationActive} on:click={deleteSettingsProject}>Delete project</button>{/if}</div>
+        <label class="field"><span>Project Name</span><input disabled={operationActive} value={settingsProject.name} on:input={(event) => updateProjectName(inputValue(event))} placeholder="LokalStore" /></label>
+        {#if issues.length > 0}<div class="validation-box">{#each issues as issue}<p>{issue.field}: {issue.message}</p>{/each}</div>{/if}
+        <div class="section-heading compact components-heading"><div><h3>Components</h3><p>Configure build and package inputs.</p></div><button class="text-button" disabled={operationActive} on:click={addComponent}>+ Add component</button></div>
+        {#each settingsProject.components as component, index}<article class="component-editor"><div class="component-editor-title"><h3>{component.name || 'New component'}</h3><button class="remove-button" disabled={operationActive} on:click={() => removeComponent(index)}>Remove</button></div><div class="form-grid">
+          <label class="field"><span>Component Name</span><input disabled={operationActive} value={component.name} on:input={(event) => updateComponent(index, { name: inputValue(event) })} /></label>
+          <label class="field"><span>Project Path</span><input disabled={operationActive} value={component.path} on:input={(event) => updateComponent(index, { path: inputValue(event) })} placeholder="C:\Projects\LokalStore\Admin" /></label>
+          <label class="field"><span>Build Command</span><input disabled={operationActive} value={component.buildCommand} on:input={(event) => updateComponent(index, { buildCommand: inputValue(event) })} placeholder="npm run build" /></label>
+          <label class="field"><span>Output Directory</span><input disabled={operationActive} value={component.outputDirectory} on:input={(event) => updateComponent(index, { outputDirectory: inputValue(event) })} placeholder="build" /></label>
+          <label class="field checkbox-field"><input type="checkbox" disabled={operationActive} checked={component.package.enabled} on:change={(event) => updateComponent(index, { package: { ...component.package, enabled: checkedValue(event) } })} /><span>Package Enabled</span></label>
+          <label class="field"><span>Package Filename</span><input disabled={operationActive} value={component.package.filename} on:input={(event) => updateComponent(index, { package: { ...component.package, filename: inputValue(event) } })} placeholder="component.zip" /></label>
+        </div></article>{:else}<div class="empty-state">No components. Add the first component above.</div>{/each}
+        <div class="action-row settings-actions"><button class="secondary-button" disabled={operationActive} on:click={closeSettings}>Cancel</button><button class="primary-button" disabled={saving || operationActive} on:click={saveSettings}>{saving ? 'Saving...' : 'Save Project'}</button></div>
+      {:else}<div class="empty-state large">Select a project or add a new one.</div>{/if}</section>
     </main>
   {/if}
 </div>

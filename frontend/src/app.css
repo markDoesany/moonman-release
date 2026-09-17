@@ -13,6 +13,7 @@ button, input, select { font: inherit; } button { cursor: pointer; } button:disa
 .status-pill.active { color: #bae6fd; border-color: #16749b; background: rgba(14, 116, 144, .25); }
 .field { display: flex; flex-direction: column; gap: 8px; color: #9fb4cb; font-size: 12px; font-weight: 700; } .field input, .field select { width: 100%; color: #e5eefb; background: #0a1a2e; border: 1px solid #2b4967; border-radius: 9px; padding: 11px 12px; outline: none; }
 .field input:focus, .field select:focus { border-color: #38bdf8; box-shadow: 0 0 0 3px rgba(56, 189, 248, .12); } .project-field { max-width: 440px; }
+.release-inputs { display: flex; gap: 18px; align-items: flex-end; } .version-field { width: 180px; }
 .component-section { border-top: 1px solid #24415f; margin-top: 30px; padding-top: 28px; } .component-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .component-option { display: flex; align-items: center; gap: 10px; min-height: 54px; padding: 0 14px; color: #dbeafe; background: #10243b; border: 1px solid #294966; border-radius: 10px; } .component-option input, .checkbox-field input { accent-color: #38bdf8; width: 16px; height: 16px; }
 .action-row { justify-content: flex-start; margin-top: 34px; } .primary-button, .secondary-button, .ghost-button, .text-button, .danger-button, .icon-button, .remove-button { border-radius: 9px; padding: 11px 16px; border: 1px solid transparent; font-weight: 700; }
@@ -26,6 +27,7 @@ button, input, select { font: inherit; } button { cursor: pointer; } button:disa
 .build-row strong, .build-row small { display: block; } .build-row small { color: #819bb6; font-size: 12px; margin-top: 4px; }
 .build-status { display: inline-flex; align-items: center; gap: 7px; min-width: 100px; justify-content: flex-end; font-size: 12px; font-weight: 700; }
 .build-status b { font-size: 16px; } .status-ready { color: #b8c9d9; } .status-building { color: #fbbf24; } .status-success { color: #86efac; } .status-failed, .status-cancelled { color: #fca5a5; } .status-skipped { color: #91a6bc; }
+.release-row { align-items: flex-start; } .release-status { display: flex; gap: 14px; align-items: center; } .release-status .build-status { min-width: auto; justify-content: flex-start; font-style: normal; }
 .build-console { max-height: 330px; overflow: auto; padding: 15px; color: #c9dcf0; background: #06101d; border: 1px solid #263e58; border-radius: 10px; font: 12px/1.65 Consolas, "Cascadia Code", monospace; white-space: pre-wrap; }
 .console-line { min-height: 20px; } .console-line > span { color: #7dd3fc; } .console-line.stderr { color: #fca5a5; } .console-line.stderr > span { color: #fb7185; }
 .clear-button { margin-left: auto; }
