@@ -22,13 +22,14 @@ var sampleFS embed.FS
 
 // Paths contains all application-local persistent paths.
 type Paths struct {
-	BaseDir      string
-	ConfigDir    string
-	ConfigFile   string
-	BackupFile   string
-	LogDir       string
-	LogFile      string
-	BuildLogFile string
+	BaseDir        string
+	ConfigDir      string
+	ConfigFile     string
+	BackupFile     string
+	LogDir         string
+	LogFile        string
+	BuildLogFile   string
+	PackageLogFile string
 }
 
 // ResolvePaths selects the repository/app directory, with an override for tests and installations.
@@ -57,13 +58,14 @@ func ResolvePaths() (Paths, error) {
 	configDir := filepath.Join(baseDir, "configs")
 	logDir := filepath.Join(baseDir, "logs")
 	return Paths{
-		BaseDir:      baseDir,
-		ConfigDir:    configDir,
-		ConfigFile:   filepath.Join(configDir, "projects.yaml"),
-		BackupFile:   filepath.Join(configDir, "projects.yaml.bak"),
-		LogDir:       logDir,
-		LogFile:      filepath.Join(logDir, "app.log"),
-		BuildLogFile: filepath.Join(logDir, "builds.jsonl"),
+		BaseDir:        baseDir,
+		ConfigDir:      configDir,
+		ConfigFile:     filepath.Join(configDir, "projects.yaml"),
+		BackupFile:     filepath.Join(configDir, "projects.yaml.bak"),
+		LogDir:         logDir,
+		LogFile:        filepath.Join(logDir, "app.log"),
+		BuildLogFile:   filepath.Join(logDir, "builds.jsonl"),
+		PackageLogFile: filepath.Join(logDir, "packaging.jsonl"),
 	}, nil
 }
 

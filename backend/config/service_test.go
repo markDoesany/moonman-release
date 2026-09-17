@@ -14,13 +14,14 @@ func testPaths(t *testing.T) Paths {
 	t.Helper()
 	base := t.TempDir()
 	return Paths{
-		BaseDir:      base,
-		ConfigDir:    filepath.Join(base, "configs"),
-		ConfigFile:   filepath.Join(base, "configs", "projects.yaml"),
-		BackupFile:   filepath.Join(base, "configs", "projects.yaml.bak"),
-		LogDir:       filepath.Join(base, "logs"),
-		LogFile:      filepath.Join(base, "logs", "app.log"),
-		BuildLogFile: filepath.Join(base, "logs", "builds.jsonl"),
+		BaseDir:        base,
+		ConfigDir:      filepath.Join(base, "configs"),
+		ConfigFile:     filepath.Join(base, "configs", "projects.yaml"),
+		BackupFile:     filepath.Join(base, "configs", "projects.yaml.bak"),
+		LogDir:         filepath.Join(base, "logs"),
+		LogFile:        filepath.Join(base, "logs", "app.log"),
+		BuildLogFile:   filepath.Join(base, "logs", "builds.jsonl"),
+		PackageLogFile: filepath.Join(base, "logs", "packaging.jsonl"),
 	}
 }
 
