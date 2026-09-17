@@ -396,18 +396,18 @@ func (s *Service) PackageOne(ctx context.Context, runID string, project models.P
 		_ = os.Remove(temporary)
 		return finish(err)
 	}
+	if err := ctx.Err(); err != nil {
+		result.Status = models.PackageStatusCancelled
+		result.Error = "Packaging cancelled."
+		_ = os.Remove(temporary)
+		return finish(err)
+	}
 	if overwrite {
 		if err := os.Remove(destination); err != nil && !errors.Is(err, os.ErrNotExist) {
 			result.Error = "Existing package could not be replaced."
 			_ = os.Remove(temporary)
 			return finish(err)
 		}
-	}
-	if err := ctx.Err(); err != nil {
-		result.Status = models.PackageStatusCancelled
-		result.Error = "Packaging cancelled."
-		_ = os.Remove(temporary)
-		return finish(err)
 	}
 	if err := os.Rename(temporary, destination); err != nil {
 		result.Error = "Package could not be finalized."

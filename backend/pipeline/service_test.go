@@ -68,6 +68,28 @@ func TestExecuteBuildsThenPackagesEachComponent(t *testing.T) {
 	}
 }
 
+func TestExecuteBuildsButSkipsDisabledPackaging(t *testing.T) {
+	root := t.TempDir()
+	component := models.Component{ID: "admin", Name: "Admin", Path: filepath.Join(root, "admin"), OutputDirectory: "build", Package: models.PackageConfig{Enabled: false}}
+	project := models.Project{ID: "lokalstore", Name: "LokalStore", Components: []models.Component{component}}
+	if err := os.MkdirAll(component.Path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	packager := packaging.NewService(logging.New(filepath.Join(base, "app.log")), logging.NewJSONLWriter(filepath.Join(base, "packaging.jsonl")), filepath.Join(root, "releases"))
+	pipeline := NewService(fakeBuilder{}, packager)
+	request := models.PackageRequest{ProjectID: project.ID, ComponentIDs: []string{"admin"}, Version: "1.0.0"}
+	run, err := pipeline.PrepareRun("run-disabled", project, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := pipeline.Execute(context.Background(), run, project, request, nil)
+	state := final.Components[0]
+	if final.Status != models.ReleaseRunStatusCompleted || state.BuildStatus != models.BuildStatusSuccess || state.PackageStatus != models.PackageStatusSkipped || state.PackageMessage != "Packaging disabled" {
+		t.Fatalf("unexpected disabled packaging state: %+v, run=%+v", state, final)
+	}
+}
+
 func hasPhaseEvent(events []models.BuildEvent, phase string) bool {
 	for _, event := range events {
 		if event.Phase == phase {

@@ -139,6 +139,12 @@ func (s *Service) Execute(ctx context.Context, run models.ReleaseRun, project mo
 			}
 			break
 		}
+		if !component.Package.Enabled {
+			state.PackageStatus = models.PackageStatusSkipped
+			state.PackageMessage = "Packaging disabled"
+			s.emitReleaseState(emit, run, *state)
+			continue
+		}
 
 		state.PackageStatus = models.PackageStatusPackaging
 		state.PackageMessage = "Packaging..."
