@@ -7,26 +7,30 @@ projects:
         path: 'C:\Projects\LokalStore\Admin'
         build_command: npm run build
         output_directory: build
-        package_enabled: true
-        package_filename: lokalstore-admin.zip
+        package:
+          enabled: true
+          filename: lokalstore-admin.zip
       - id: customer
         name: Customer
         path: 'C:\Projects\LokalStore\Customer'
         build_command: npm run build
         output_directory: build
-        package_enabled: true
-        package_filename: lokalstore-customer.zip
+        package:
+          enabled: true
+          filename: lokalstore-customer.zip
       - id: merchant
         name: Merchant
         path: 'C:\Projects\LokalStore\Merchant'
         build_command: npm run build
         output_directory: build
-        package_enabled: true
-        package_filename: lokalstore-merchant.zip
+        package:
+          enabled: true
+          filename: lokalstore-merchant.zip
       - id: affiliate
         name: Affiliate
         path: 'C:\Projects\LokalStore\Affiliate'
         build_command: npm run build
         output_directory: build
-        package_enabled: true
-        package_filename: lokalstore-affiliate.zip
+        package:
+          enabled: true
+          filename: lokalstore-affiliate.zip

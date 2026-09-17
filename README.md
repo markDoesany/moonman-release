@@ -83,8 +83,9 @@ projects:
         path: 'C:\Projects\LokalStore\Admin'
         build_command: npm run build
         output_directory: build
-        package_enabled: true
-        package_filename: lokalstore-admin.zip
+        package:
+          enabled: true
+          filename: lokalstore-admin.zip
 ```
 
 Project and component IDs are generated for new records and remain stable when names are edited. Component paths must exist when a build starts. Build commands run from the component path using Windows `cmd.exe /d /s /c`, so commands such as `npm run build` work with the developer's normal PATH.

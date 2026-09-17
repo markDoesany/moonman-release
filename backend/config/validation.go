@@ -44,8 +44,8 @@ func Validate(projects []models.Project) []models.ValidationIssue {
 			if strings.TrimSpace(component.OutputDirectory) == "" {
 				issues = append(issues, models.ValidationIssue{Field: componentPrefix + ".outputDirectory", Message: "output directory cannot be empty"})
 			}
-			if component.PackageEnabled && strings.TrimSpace(component.PackageFilename) == "" {
-				issues = append(issues, models.ValidationIssue{Field: componentPrefix + ".packageFilename", Message: "package filename is required when packaging is enabled"})
+			if component.Package.Enabled && strings.TrimSpace(component.Package.Filename) == "" {
+				issues = append(issues, models.ValidationIssue{Field: componentPrefix + ".package.filename", Message: "package filename is required when packaging is enabled"})
 			}
 		}
 	}

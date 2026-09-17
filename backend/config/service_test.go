@@ -43,6 +43,25 @@ func TestLoadSeedsSampleConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadSupportsLegacyFlatPackageFields(t *testing.T) {
+	paths := testPaths(t)
+	if err := os.MkdirAll(paths.ConfigDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	contents := []byte("projects:\n  - id: legacy\n    name: Legacy\n    components:\n      - id: web\n        name: Web\n        path: C:/Projects/Legacy/Web\n        build_command: npm run build\n        output_directory: build\n        package_enabled: true\n        package_filename: legacy-web.zip\n")
+	if err := os.WriteFile(paths.ConfigFile, contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(paths, logging.New(paths.LogFile))
+	if err := service.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	project, err := service.Project("legacy")
+	if err != nil || !project.Components[0].Package.Enabled || project.Components[0].Package.Filename != "legacy-web.zip" {
+		t.Fatalf("legacy package fields were not normalized: %+v, error = %v", project, err)
+	}
+}
+
 func TestSaveProjectGeneratesIDsAndCreatesBackup(t *testing.T) {
 	paths := testPaths(t)
 	if err := os.MkdirAll(paths.ConfigDir, 0o755); err != nil {
@@ -63,8 +82,7 @@ func TestSaveProjectGeneratesIDsAndCreatesBackup(t *testing.T) {
 			Path:            `C:\Projects\Donation\Admin`,
 			BuildCommand:    "npm run build",
 			OutputDirectory: "build",
-			PackageEnabled:  true,
-			PackageFilename: "donation-admin.zip",
+			Package:         models.PackageConfig{Enabled: true, Filename: "donation-admin.zip"},
 		}},
 	})
 	if err != nil {
@@ -110,9 +128,9 @@ func TestValidateReportsRequiredFields(t *testing.T) {
 		ID:   "project",
 		Name: "Project",
 		Components: []models.Component{{
-			ID:             "component",
-			Name:           "Component",
-			PackageEnabled: true,
+			ID:      "component",
+			Name:    "Component",
+			Package: models.PackageConfig{Enabled: true},
 		}},
 	}})
 
