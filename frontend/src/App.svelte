@@ -819,7 +819,7 @@
     const nextID = changes.id?.trim() || profile.id;
     const environments = (settingsProject.environments ?? []).map((item) =>
       item.id === profile.id
-        ? { ...item, ...changes, id: nextID, commands: item.commands ?? {} }
+        ? { ...item, ...changes, id: nextID, commands: changes.commands ?? item.commands ?? {} }
         : item,
     );
     updateProject({
