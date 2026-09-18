@@ -1,0 +1,114 @@
+.component-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.component-count {
+  color: #7f9bb4;
+  font-size: 11px;
+}
+
+.component-list {
+  display: grid;
+  gap: 8px;
+}
+
+.component-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 15px;
+  background: #0a1a2c;
+  border: 1px solid #1d3b56;
+  border-radius: 8px;
+}
+
+.component-row.active {
+  border-color: #3d84a9;
+  background: #0d2439;
+}
+
+.component-row-main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 12px;
+}
+
+.component-number {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  color: #71d5f7;
+  background: #123c54;
+  border: 1px solid #286d8d;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.component-row-main strong,
+.component-row-main small {
+  display: block;
+}
+
+.component-row-main strong {
+  font-size: 13px;
+}
+
+.component-row-main small {
+  max-width: 560px;
+  margin-top: 4px;
+  overflow: hidden;
+  color: #839db6;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.component-row-meta,
+.component-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.component-row-meta {
+  margin-top: 7px;
+}
+
+.component-row-id {
+  color: #66839d;
+  font: 10px Consolas, monospace;
+}
+
+.component-row-actions {
+  flex: 0 0 auto;
+}
+
+.component-details {
+  margin-top: 13px;
+  padding: 18px;
+  background: #102944;
+  border: 1px solid #2b5978;
+  border-radius: 8px;
+}
+
+@media (max-width: 900px) {
+  .component-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .component-row-actions {
+    width: 100%;
+  }
+
+  .component-row-actions .secondary-button {
+    flex: 1;
+  }
+}
