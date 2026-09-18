@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -21,6 +22,9 @@ func (commandRunner) Run(ctx context.Context, command, dir string, emit func(str
 	startedAt := time.Now()
 	cmd := exec.CommandContext(ctx, "cmd.exe", "/d", "/s", "/c", command)
 	cmd.Dir = dir
+	// Keep the child shell hidden; stdout/stderr are streamed into the
+	// in-app console instead of opening a separate command window.
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return processOutcome{StartTime: startedAt, EndTime: time.Now(), ExitCode: -1, Err: err, Technical: err}
