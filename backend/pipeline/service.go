@@ -43,6 +43,12 @@ func NewService(builder componentBuilder, packager *packaging.Service, senders .
 
 // PrepareRun validates the selected project/components and creates initial state.
 func (s *Service) PrepareRun(runID string, project models.Project, request models.PackageRequest) (models.ReleaseRun, error) {
+	environment := project.EffectiveEnvironment(request.Environment)
+	if len(project.Environments) > 0 {
+		if _, ok := project.Environment(environment); !ok {
+			return models.ReleaseRun{}, fmt.Errorf("environment %q is not configured for project %q", environment, project.Name)
+		}
+	}
 	plan, err := s.packager.PlanRequest(project, request)
 	if err != nil {
 		return models.ReleaseRun{}, err
@@ -82,7 +88,7 @@ func (s *Service) PrepareRun(runID string, project models.Project, request model
 		ID:          runID,
 		ProjectID:   project.ID,
 		ProjectName: project.Name,
-		Environment: strings.TrimSpace(request.Environment),
+		Environment: environment,
 		Version:     plan.Version,
 		Status:      models.ReleaseRunStatusRunning,
 		Components:  states,
@@ -116,7 +122,7 @@ func (s *Service) execute(ctx context.Context, run models.ReleaseRun, project mo
 	for _, item := range plan.Components {
 		items[item.ComponentID] = item
 	}
-	s.emit(emit, models.BuildEvent{Type: build.EventRunStarted, Phase: "release", RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, Version: run.Version, Timestamp: time.Now()})
+	s.emit(emit, models.BuildEvent{Type: build.EventRunStarted, Phase: "release", RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, Version: run.Version, Environment: run.Environment, Timestamp: time.Now()})
 
 	for i := range run.Components {
 		state := &run.Components[i]
@@ -261,7 +267,7 @@ func (s *Service) sendOne(ctx context.Context, runID string, project models.Proj
 
 func (s *Service) finish(run models.ReleaseRun, emit func(models.BuildEvent)) models.ReleaseRun {
 	run.EndTime = time.Now()
-	s.emit(emit, models.BuildEvent{Type: EventRunFinished, Phase: "release", RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, Version: run.Version, RunStatus: models.BuildRunStatus(run.Status), Error: run.Error, Timestamp: run.EndTime})
+	s.emit(emit, models.BuildEvent{Type: EventRunFinished, Phase: "release", RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, Version: run.Version, Environment: run.Environment, RunStatus: models.BuildRunStatus(run.Status), Error: run.Error, Timestamp: run.EndTime})
 	return run
 }
 
@@ -272,7 +278,7 @@ func (s *Service) emit(sink func(models.BuildEvent), event models.BuildEvent) {
 }
 
 func (s *Service) emitReleaseState(sink func(models.BuildEvent), run models.ReleaseRun, state models.ReleaseComponentState) {
-	s.emit(sink, models.BuildEvent{Type: "release_component_state", Phase: "release", RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, ComponentID: state.ComponentID, ComponentName: state.ComponentName, Version: run.Version, Status: state.BuildStatus, PackageStatus: state.PackageStatus, Result: state.BuildResult, PackageResult: state.PackageResult, TransferStatus: state.TransferStatus, TransferResult: state.TransferResult, Error: state.BuildMessage + " | " + state.PackageMessage + " | " + state.TransferMessage, Timestamp: time.Now()})
+	s.emit(sink, models.BuildEvent{Type: "release_component_state", Phase: "release", RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, ComponentID: state.ComponentID, ComponentName: state.ComponentName, Version: run.Version, Environment: run.Environment, Status: state.BuildStatus, PackageStatus: state.PackageStatus, Result: state.BuildResult, PackageResult: state.PackageResult, TransferStatus: state.TransferStatus, TransferResult: state.TransferResult, Error: state.BuildMessage + " | " + state.PackageMessage + " | " + state.TransferMessage, Timestamp: time.Now()})
 }
 
 func (s *Service) markRemainingSkipped(states []models.ReleaseComponentState, reason string, emit func(models.BuildEvent), run models.ReleaseRun) {

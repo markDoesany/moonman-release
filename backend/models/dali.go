@@ -43,6 +43,7 @@ type TransferRequest struct {
 	Version          string            `json:"version"`
 	FilenameTemplate string            `json:"filenameTemplate,omitempty"`
 	PackageNames     map[string]string `json:"packageNames,omitempty"`
+	Environment      string            `json:"environment,omitempty"`
 }
 
 // TransferPlanItem describes the archive that will be sent.
@@ -62,6 +63,7 @@ type TransferPlan struct {
 	ProjectID        string             `json:"projectId"`
 	ProjectName      string             `json:"projectName"`
 	Version          string             `json:"version"`
+	ReleaseDirectory string             `json:"releaseDirectory"`
 	FilenameTemplate string             `json:"filenameTemplate"`
 	Components       []TransferPlanItem `json:"components"`
 	HasMissing       bool               `json:"hasMissing"`
@@ -80,6 +82,7 @@ type TransferRun struct {
 	ID          string                   `json:"id"`
 	ProjectID   string                   `json:"projectId"`
 	ProjectName string                   `json:"projectName"`
+	Environment string                   `json:"environment,omitempty"`
 	Version     string                   `json:"version"`
 	Status      TransferRunStatus        `json:"status"`
 	Components  []TransferComponentState `json:"components"`

@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,6 +30,7 @@ type App struct {
 	packager     *packaging.Service
 	transfer     *transfer.Service
 	pipeline     *pipeline.Service
+	activity     *logging.JSONLWriter
 	loadErr      error
 
 	buildMu      sync.Mutex
@@ -48,6 +51,7 @@ func New() (*App, error) {
 	history := logging.NewJSONLWriter(paths.BuildLogFile)
 	packagingHistory := logging.NewJSONLWriter(paths.PackageLogFile)
 	transferHistory := logging.NewJSONLWriter(paths.TransferLogFile)
+	activityHistory := logging.NewJSONLWriter(paths.ActivityLogFile)
 	packager := packaging.NewService(logger, packagingHistory, paths.ReleaseDir)
 	transferService := transfer.NewService(logger, transferHistory, packager)
 	builder := build.NewService(logger, history)
@@ -58,6 +62,7 @@ func New() (*App, error) {
 		packager:     packager,
 		transfer:     transferService,
 		pipeline:     pipeline.NewService(builder, packager, transferService),
+		activity:     activityHistory,
 	}, nil
 }
 
@@ -99,6 +104,41 @@ func (a *App) GetProject(id string) (models.Project, error) {
 		return models.Project{}, fmt.Errorf("configuration unavailable: %w", a.loadErr)
 	}
 	return a.config.Project(id)
+}
+
+// GetRecentRuns returns durable release activity, newest first.
+func (a *App) GetRecentRuns(projectID string, limit int) ([]models.RunSummary, error) {
+	paths, err := config.ResolvePaths()
+	if err != nil {
+		return nil, err
+	}
+	contents, err := os.ReadFile(paths.ActivityLogFile)
+	if errors.Is(err, os.ErrNotExist) {
+		return []models.RunSummary{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read activity history: %w", err)
+	}
+	lines := strings.Split(string(contents), "\n")
+	result := make([]models.RunSummary, 0)
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		var summary models.RunSummary
+		if err := json.Unmarshal([]byte(line), &summary); err != nil {
+			continue
+		}
+		if strings.TrimSpace(projectID) != "" && summary.ProjectID != projectID {
+			continue
+		}
+		result = append(result, summary)
+		if limit > 0 && len(result) >= limit {
+			break
+		}
+	}
+	return result, nil
 }
 
 // SaveProject creates or updates a project and returns the canonical saved value.
@@ -175,6 +215,22 @@ func (a *App) PickFile(initialPath string) (string, error) {
 	return runtime.OpenFileDialog(ctx, options)
 }
 
+// OpenReleaseFolder opens a local release directory in the host file manager.
+func (a *App) OpenReleaseFolder(path string) error {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "." || path == "" {
+		return errors.New("release folder is empty")
+	}
+	if info, err := os.Stat(path); err != nil || !info.IsDir() {
+		return fmt.Errorf("release folder does not exist: %s", path)
+	}
+	if a.runtimeCtx == nil {
+		return errors.New("native folder actions are unavailable before application startup")
+	}
+	runtime.BrowserOpenURL(a.runtimeCtx, "file:///"+filepath.ToSlash(path))
+	return nil
+}
+
 func dialogDirectory(value string) string {
 	value = filepath.Clean(value)
 	if info, err := os.Stat(value); err == nil {
@@ -245,6 +301,7 @@ func (a *App) StartPackage(request models.PackageRequest) (models.PackageRun, er
 		} else {
 			a.logger.Error(fmt.Sprintf("Packaging failed: %s", project.Name))
 		}
+		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "package", ComponentIDs: componentIDsFromPackageRequest(request), Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory})
 		a.releaseRun(run.ID, done)
 	}()
 	return run, nil
@@ -309,6 +366,7 @@ func (a *App) StartTransfer(request models.TransferRequest) (models.TransferRun,
 		} else {
 			a.logger.Error(fmt.Sprintf("Dali transfer failed: %s", project.Name))
 		}
+		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "transfer", ComponentIDs: request.ComponentIDs, Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory})
 		a.releaseRun(run.ID, done)
 	}()
 	return run, nil
@@ -354,6 +412,7 @@ func (a *App) StartBuildAndPackage(request models.PackageRequest) (models.Releas
 		} else {
 			a.logger.Error(fmt.Sprintf("Build and package failed: %s", project.Name))
 		}
+		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "build-package", ComponentIDs: request.ComponentIDs, Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory})
 		a.releaseRun(run.ID, done)
 	}()
 	return run, nil
@@ -403,6 +462,7 @@ func (a *App) StartBuildPackageAndSend(request models.PackageRequest) (models.Re
 		} else {
 			a.logger.Error(fmt.Sprintf("Build, package, and Dali transfer failed: %s", project.Name))
 		}
+		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "build-package-send", ComponentIDs: request.ComponentIDs, Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory})
 		a.releaseRun(run.ID, done)
 	}()
 	return run, nil
@@ -450,6 +510,7 @@ func (a *App) StartBuild(request models.BuildRequest) (models.BuildRun, error) {
 		default:
 			a.logger.Error(fmt.Sprintf("Build failed: %s", project.Name))
 		}
+		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "build", ComponentIDs: request.ComponentIDs, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error})
 		a.buildMu.Lock()
 		if a.activeRunID == run.ID {
 			a.activeRunID = ""
@@ -465,6 +526,19 @@ func (a *App) StartBuild(request models.BuildRequest) (models.BuildRun, error) {
 
 func (a *App) nextRunID() string {
 	return fmt.Sprintf("run-%d-%d", time.Now().UnixNano(), a.runSequence.Add(1))
+}
+
+func (a *App) recordRun(summary models.RunSummary) {
+	if a.activity == nil {
+		return
+	}
+	if err := a.activity.Append(summary); err != nil && a.logger != nil {
+		a.logger.Error("Activity history could not be written: " + err.Error())
+	}
+}
+
+func componentIDsFromPackageRequest(request models.PackageRequest) []string {
+	return append([]string(nil), request.ComponentIDs...)
 }
 
 func (a *App) eventSink(eventContext context.Context) func(models.BuildEvent) {

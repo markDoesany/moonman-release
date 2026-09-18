@@ -146,7 +146,7 @@ func (s *Service) PlanRequest(project models.Project, request models.TransferReq
 		}
 		items = append(items, transferItem)
 	}
-	return models.TransferPlan{ProjectID: packagePlan.ProjectID, ProjectName: packagePlan.ProjectName, Version: packagePlan.Version, FilenameTemplate: packagePlan.FilenameTemplate, Components: items, HasMissing: hasMissing}, nil
+	return models.TransferPlan{ProjectID: packagePlan.ProjectID, ProjectName: packagePlan.ProjectName, Version: packagePlan.Version, ReleaseDirectory: packagePlan.ReleaseDirectory, FilenameTemplate: packagePlan.FilenameTemplate, Components: items, HasMissing: hasMissing}, nil
 }
 
 func (s *Service) PrepareRun(runID string, project models.Project, request models.TransferRequest) (models.TransferRun, error) {
@@ -174,7 +174,7 @@ func (s *Service) PrepareRun(runID string, project models.Project, request model
 		}
 		states = append(states, models.TransferComponentState{ComponentID: component.ID, ComponentName: component.Name, Selected: selected[component.ID], Status: status, Message: message})
 	}
-	return models.TransferRun{ID: runID, ProjectID: project.ID, ProjectName: project.Name, Version: plan.Version, Status: models.TransferRunStatusRunning, Components: states, StartTime: time.Now()}, nil
+	return models.TransferRun{ID: runID, ProjectID: project.ID, ProjectName: project.Name, Environment: project.EffectiveEnvironment(request.Environment), Version: plan.Version, Status: models.TransferRunStatusRunning, Components: states, StartTime: time.Now()}, nil
 }
 
 func (s *Service) Execute(ctx context.Context, run models.TransferRun, project models.Project, request models.TransferRequest, settings models.DaliConfig, emit EventSink) models.TransferRun {
@@ -191,7 +191,7 @@ func (s *Service) Execute(ctx context.Context, run models.TransferRun, project m
 		return s.finish(run, emit)
 	}
 
-	s.emit(emit, models.BuildEvent{Type: EventRunStarted, Phase: Phase, RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, Version: run.Version, Timestamp: time.Now()})
+	s.emit(emit, models.BuildEvent{Type: EventRunStarted, Phase: Phase, RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, Version: run.Version, Environment: run.Environment, Timestamp: time.Now()})
 	components := make(map[string]models.Component, len(project.Components))
 	items := make(map[string]models.TransferPlanItem, len(plan.Components))
 	for _, component := range project.Components {
@@ -354,7 +354,7 @@ func (s *Service) finish(run models.TransferRun, emit EventSink) models.Transfer
 			results = append(results, *state.Result)
 		}
 	}
-	s.emit(emit, models.BuildEvent{Type: EventRunFinished, Phase: Phase, RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, Version: run.Version, RunStatus: models.BuildRunStatus(run.Status), TransferResults: results, Error: run.Error, Timestamp: run.EndTime})
+	s.emit(emit, models.BuildEvent{Type: EventRunFinished, Phase: Phase, RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, Version: run.Version, Environment: run.Environment, RunStatus: models.BuildRunStatus(run.Status), TransferResults: results, Error: run.Error, Timestamp: run.EndTime})
 	return run
 }
 
@@ -365,7 +365,7 @@ func (s *Service) emit(sink EventSink, event models.BuildEvent) {
 }
 
 func (s *Service) emitState(sink EventSink, run models.TransferRun, state models.TransferComponentState, eventType string) {
-	s.emit(sink, models.BuildEvent{Type: eventType, Phase: Phase, RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, ComponentID: state.ComponentID, ComponentName: state.ComponentName, Version: run.Version, TransferStatus: state.Status, TransferResult: state.Result, Error: state.Message, Timestamp: time.Now()})
+	s.emit(sink, models.BuildEvent{Type: eventType, Phase: Phase, RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, ComponentID: state.ComponentID, ComponentName: state.ComponentName, Version: run.Version, Environment: run.Environment, TransferStatus: state.Status, TransferResult: state.Result, Error: state.Message, Timestamp: time.Now()})
 }
 
 func skipRemaining(states []models.TransferComponentState, reason string, sink EventSink, run models.TransferRun) {
@@ -376,7 +376,7 @@ func skipRemaining(states []models.TransferComponentState, reason string, sink E
 		states[i].Status = models.TransferStatusSkipped
 		states[i].Message = reason
 		if sink != nil {
-			sink(models.BuildEvent{Type: EventComponentFinished, Phase: Phase, RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, ComponentID: states[i].ComponentID, ComponentName: states[i].ComponentName, Version: run.Version, TransferStatus: states[i].Status, Error: reason, Timestamp: time.Now()})
+			sink(models.BuildEvent{Type: EventComponentFinished, Phase: Phase, RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, ComponentID: states[i].ComponentID, ComponentName: states[i].ComponentName, Version: run.Version, Environment: run.Environment, TransferStatus: states[i].Status, Error: reason, Timestamp: time.Now()})
 		}
 	}
 }
