@@ -71,25 +71,28 @@ type BuildResult struct {
 
 // BuildEvent is emitted through Wails while a run is active.
 type BuildEvent struct {
-	Type           string          `json:"type"`
-	Phase          string          `json:"phase,omitempty"`
-	RunID          string          `json:"runId"`
-	ProjectID      string          `json:"projectId"`
-	ProjectName    string          `json:"projectName"`
-	ComponentID    string          `json:"componentId,omitempty"`
-	ComponentName  string          `json:"componentName,omitempty"`
-	Status         BuildStatus     `json:"status,omitempty"`
-	RunStatus      BuildRunStatus  `json:"runStatus,omitempty"`
-	Stream         string          `json:"stream,omitempty"`
-	Text           string          `json:"text,omitempty"`
-	Timestamp      time.Time       `json:"timestamp"`
-	Version        string          `json:"version,omitempty"`
-	Result         *BuildResult    `json:"result,omitempty"`
-	Results        []BuildResult   `json:"results,omitempty"`
-	PackageStatus  PackageStatus   `json:"packageStatus,omitempty"`
-	PackageResult  *PackageResult  `json:"packageResult,omitempty"`
-	PackageResults []PackageResult `json:"packageResults,omitempty"`
-	Error          string          `json:"error,omitempty"`
+	Type            string           `json:"type"`
+	Phase           string           `json:"phase,omitempty"`
+	RunID           string           `json:"runId"`
+	ProjectID       string           `json:"projectId"`
+	ProjectName     string           `json:"projectName"`
+	ComponentID     string           `json:"componentId,omitempty"`
+	ComponentName   string           `json:"componentName,omitempty"`
+	Status          BuildStatus      `json:"status,omitempty"`
+	RunStatus       BuildRunStatus   `json:"runStatus,omitempty"`
+	Stream          string           `json:"stream,omitempty"`
+	Text            string           `json:"text,omitempty"`
+	Timestamp       time.Time        `json:"timestamp"`
+	Version         string           `json:"version,omitempty"`
+	Result          *BuildResult     `json:"result,omitempty"`
+	Results         []BuildResult    `json:"results,omitempty"`
+	PackageStatus   PackageStatus    `json:"packageStatus,omitempty"`
+	PackageResult   *PackageResult   `json:"packageResult,omitempty"`
+	PackageResults  []PackageResult  `json:"packageResults,omitempty"`
+	TransferStatus  TransferStatus   `json:"transferStatus,omitempty"`
+	TransferResult  *TransferResult  `json:"transferResult,omitempty"`
+	TransferResults []TransferResult `json:"transferResults,omitempty"`
+	Error           string           `json:"error,omitempty"`
 }
 
 // BuildRecord is the structured local history entry for one build attempt.

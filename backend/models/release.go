@@ -14,15 +14,18 @@ const (
 
 // ReleaseComponentState combines build and package state for one component.
 type ReleaseComponentState struct {
-	ComponentID    string         `json:"componentId"`
-	ComponentName  string         `json:"componentName"`
-	Selected       bool           `json:"selected"`
-	BuildStatus    BuildStatus    `json:"buildStatus"`
-	BuildMessage   string         `json:"buildMessage"`
-	BuildResult    *BuildResult   `json:"buildResult,omitempty"`
-	PackageStatus  PackageStatus  `json:"packageStatus"`
-	PackageMessage string         `json:"packageMessage"`
-	PackageResult  *PackageResult `json:"packageResult,omitempty"`
+	ComponentID     string          `json:"componentId"`
+	ComponentName   string          `json:"componentName"`
+	Selected        bool            `json:"selected"`
+	BuildStatus     BuildStatus     `json:"buildStatus"`
+	BuildMessage    string          `json:"buildMessage"`
+	BuildResult     *BuildResult    `json:"buildResult,omitempty"`
+	PackageStatus   PackageStatus   `json:"packageStatus"`
+	PackageMessage  string          `json:"packageMessage"`
+	PackageResult   *PackageResult  `json:"packageResult,omitempty"`
+	TransferStatus  TransferStatus  `json:"transferStatus"`
+	TransferMessage string          `json:"transferMessage"`
+	TransferResult  *TransferResult `json:"transferResult,omitempty"`
 }
 
 // ReleaseRun describes an asynchronous build-and-package pipeline run.

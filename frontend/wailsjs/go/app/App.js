@@ -14,6 +14,10 @@ export function DeleteProject(arg1) {
   return window['go']['app']['App']['DeleteProject'](arg1);
 }
 
+export function GetDaliConfig() {
+  return window['go']['app']['App']['GetDaliConfig']();
+}
+
 export function GetPackagePlan(arg1) {
   return window['go']['app']['App']['GetPackagePlan'](arg1);
 }
@@ -24,6 +28,14 @@ export function GetProject(arg1) {
 
 export function GetProjects() {
   return window['go']['app']['App']['GetProjects']();
+}
+
+export function GetTransferPlan(arg1) {
+  return window['go']['app']['App']['GetTransferPlan'](arg1);
+}
+
+export function SaveDaliConfig(arg1) {
+  return window['go']['app']['App']['SaveDaliConfig'](arg1);
 }
 
 export function SaveProject(arg1) {
@@ -38,8 +50,16 @@ export function StartBuildAndPackage(arg1) {
   return window['go']['app']['App']['StartBuildAndPackage'](arg1);
 }
 
+export function StartBuildPackageAndSend(arg1) {
+  return window['go']['app']['App']['StartBuildPackageAndSend'](arg1);
+}
+
 export function StartPackage(arg1) {
   return window['go']['app']['App']['StartPackage'](arg1);
+}
+
+export function StartTransfer(arg1) {
+  return window['go']['app']['App']['StartTransfer'](arg1);
 }
 
 export function ValidateProject(arg1) {

@@ -9,6 +9,7 @@ import (
 	"release-launcher/backend/build"
 	"release-launcher/backend/models"
 	"release-launcher/backend/packaging"
+	"release-launcher/backend/transfer"
 )
 
 const EventRunFinished = "release_run_finished"
@@ -17,14 +18,23 @@ const EventRunFinished = "release_run_finished"
 type Service struct {
 	builder  componentBuilder
 	packager *packaging.Service
+	sender   componentSender
 }
 
 type componentBuilder interface {
 	BuildComponent(context.Context, models.BuildRun, models.Project, models.Component, build.EventSink) models.BuildResult
 }
 
-func NewService(builder componentBuilder, packager *packaging.Service) *Service {
-	return &Service{builder: builder, packager: packager}
+type componentSender interface {
+	SendOne(context.Context, string, models.Project, models.Component, string, models.DaliConfig, transfer.EventSink) models.TransferResult
+}
+
+func NewService(builder componentBuilder, packager *packaging.Service, senders ...componentSender) *Service {
+	service := &Service{builder: builder, packager: packager}
+	if len(senders) > 0 {
+		service.sender = senders[0]
+	}
+	return service
 }
 
 // PrepareRun validates the selected project/components and creates initial state.
@@ -50,13 +60,15 @@ func (s *Service) PrepareRun(runID string, project models.Project, request model
 			packageMessage = "Not selected"
 		}
 		states = append(states, models.ReleaseComponentState{
-			ComponentID:    component.ID,
-			ComponentName:  component.Name,
-			Selected:       selected[component.ID],
-			BuildStatus:    buildStatusForSelection(selected[component.ID]),
-			BuildMessage:   messageForSelection(selected[component.ID]),
-			PackageStatus:  packageStatus,
-			PackageMessage: packageMessage,
+			ComponentID:     component.ID,
+			ComponentName:   component.Name,
+			Selected:        selected[component.ID],
+			BuildStatus:     buildStatusForSelection(selected[component.ID]),
+			BuildMessage:    messageForSelection(selected[component.ID]),
+			PackageStatus:   packageStatus,
+			PackageMessage:  packageMessage,
+			TransferStatus:  transferStatusFor(component, selected[component.ID]),
+			TransferMessage: transferMessageFor(component, selected[component.ID]),
 		})
 	}
 	if plan.Version == "" {
@@ -75,6 +87,15 @@ func (s *Service) PrepareRun(runID string, project models.Project, request model
 
 // Execute builds and packages each selected component before moving forward.
 func (s *Service) Execute(ctx context.Context, run models.ReleaseRun, project models.Project, request models.PackageRequest, emit func(models.BuildEvent)) models.ReleaseRun {
+	return s.execute(ctx, run, project, request, nil, emit)
+}
+
+// ExecuteBuildPackageAndSend runs the complete build, package, and Dali transfer workflow.
+func (s *Service) ExecuteBuildPackageAndSend(ctx context.Context, run models.ReleaseRun, project models.Project, request models.PackageRequest, settings models.DaliConfig, emit func(models.BuildEvent)) models.ReleaseRun {
+	return s.execute(ctx, run, project, request, &settings, emit)
+}
+
+func (s *Service) execute(ctx context.Context, run models.ReleaseRun, project models.Project, request models.PackageRequest, settings *models.DaliConfig, emit func(models.BuildEvent)) models.ReleaseRun {
 	plan, err := s.packager.Plan(project, request.ComponentIDs, run.Version)
 	if err != nil {
 		run.Status = models.ReleaseRunStatusFailed
@@ -101,6 +122,8 @@ func (s *Service) Execute(ctx context.Context, run models.ReleaseRun, project mo
 			state.BuildMessage = "Build cancelled before this component started"
 			state.PackageStatus = models.PackageStatusSkipped
 			state.PackageMessage = "Packaging cancelled"
+			state.TransferStatus = models.TransferStatusSkipped
+			state.TransferMessage = "Transfer cancelled"
 			s.emitReleaseState(emit, run, *state)
 			s.markRemainingSkipped(run.Components[i+1:], "Cancelled", emit, run)
 			run.Status = models.ReleaseRunStatusCancelled
@@ -127,6 +150,8 @@ func (s *Service) Execute(ctx context.Context, run models.ReleaseRun, project mo
 		if !buildResult.Success {
 			state.PackageStatus = models.PackageStatusSkipped
 			state.PackageMessage = "Build did not succeed"
+			state.TransferStatus = models.TransferStatusSkipped
+			state.TransferMessage = "Build did not succeed"
 			s.emitReleaseState(emit, run, *state)
 			if buildResult.Status == models.BuildStatusCancelled {
 				run.Status = models.ReleaseRunStatusCancelled
@@ -142,6 +167,8 @@ func (s *Service) Execute(ctx context.Context, run models.ReleaseRun, project mo
 		if !component.Package.Enabled {
 			state.PackageStatus = models.PackageStatusSkipped
 			state.PackageMessage = "Packaging disabled"
+			state.TransferStatus = models.TransferStatusSkipped
+			state.TransferMessage = "Packaging disabled"
 			s.emitReleaseState(emit, run, *state)
 			continue
 		}
@@ -159,6 +186,9 @@ func (s *Service) Execute(ctx context.Context, run models.ReleaseRun, project mo
 		}
 		s.emitReleaseState(emit, run, *state)
 		if !packageResult.Success {
+			state.TransferStatus = models.TransferStatusSkipped
+			state.TransferMessage = "Packaging did not succeed"
+			s.emitReleaseState(emit, run, *state)
 			if packageResult.Status == models.PackageStatusCancelled {
 				run.Status = models.ReleaseRunStatusCancelled
 				run.Error = "Build and package cancelled"
@@ -167,6 +197,45 @@ func (s *Service) Execute(ctx context.Context, run models.ReleaseRun, project mo
 				run.Status = models.ReleaseRunStatusFailed
 				run.Error = fmt.Sprintf("%s failed to package.", component.Name)
 				s.markRemainingSkipped(run.Components[i+1:], "Previous component failed", emit, run)
+			}
+			break
+		}
+		if settings == nil {
+			continue
+		}
+		if s.sender == nil {
+			state.TransferStatus = models.TransferStatusFailed
+			state.TransferMessage = "Dali transfer service is unavailable"
+			s.emitReleaseState(emit, run, *state)
+			run.Status = models.ReleaseRunStatusFailed
+			run.Error = "Dali transfer service is unavailable"
+			s.markRemainingSkipped(run.Components[i+1:], "Previous transfer failed", emit, run)
+			break
+		}
+		state.TransferStatus = models.TransferStatusSending
+		state.TransferMessage = "Sending..."
+		s.emitReleaseState(emit, run, *state)
+		transferResult := s.sender.SendOne(ctx, run.ID, project, component, packageResult.PackagePath, *settings, func(event models.BuildEvent) {
+			event.Phase = transfer.Phase
+			event.Version = run.Version
+			s.emit(emit, event)
+		})
+		state.TransferResult = &transferResult
+		state.TransferStatus = transferResult.Status
+		state.TransferMessage = transferResult.Error
+		if state.TransferMessage == "" {
+			state.TransferMessage = statusMessage(string(transferResult.Status))
+		}
+		s.emitReleaseState(emit, run, *state)
+		if !transferResult.Success {
+			if transferResult.Status == models.TransferStatusCancelled {
+				run.Status = models.ReleaseRunStatusCancelled
+				run.Error = "Build, package, and transfer cancelled"
+				s.markRemainingSkipped(run.Components[i+1:], "Cancelled", emit, run)
+			} else {
+				run.Status = models.ReleaseRunStatusFailed
+				run.Error = fmt.Sprintf("%s failed to send.", component.Name)
+				s.markRemainingSkipped(run.Components[i+1:], "Previous transfer failed", emit, run)
 			}
 			break
 		}
@@ -190,7 +259,7 @@ func (s *Service) emit(sink func(models.BuildEvent), event models.BuildEvent) {
 }
 
 func (s *Service) emitReleaseState(sink func(models.BuildEvent), run models.ReleaseRun, state models.ReleaseComponentState) {
-	s.emit(sink, models.BuildEvent{Type: "release_component_state", Phase: "release", RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, ComponentID: state.ComponentID, ComponentName: state.ComponentName, Version: run.Version, Status: state.BuildStatus, PackageStatus: state.PackageStatus, Result: state.BuildResult, PackageResult: state.PackageResult, Error: state.BuildMessage + " | " + state.PackageMessage, Timestamp: time.Now()})
+	s.emit(sink, models.BuildEvent{Type: "release_component_state", Phase: "release", RunID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, ComponentID: state.ComponentID, ComponentName: state.ComponentName, Version: run.Version, Status: state.BuildStatus, PackageStatus: state.PackageStatus, Result: state.BuildResult, PackageResult: state.PackageResult, TransferStatus: state.TransferStatus, TransferResult: state.TransferResult, Error: state.BuildMessage + " | " + state.PackageMessage + " | " + state.TransferMessage, Timestamp: time.Now()})
 }
 
 func (s *Service) markRemainingSkipped(states []models.ReleaseComponentState, reason string, emit func(models.BuildEvent), run models.ReleaseRun) {
@@ -202,8 +271,27 @@ func (s *Service) markRemainingSkipped(states []models.ReleaseComponentState, re
 		states[i].BuildMessage = reason
 		states[i].PackageStatus = models.PackageStatusSkipped
 		states[i].PackageMessage = reason
+		states[i].TransferStatus = models.TransferStatusSkipped
+		states[i].TransferMessage = reason
 		s.emitReleaseState(emit, run, states[i])
 	}
+}
+
+func transferStatusFor(component models.Component, selected bool) models.TransferStatus {
+	if !selected || !component.Package.Enabled {
+		return models.TransferStatusSkipped
+	}
+	return models.TransferStatusReady
+}
+
+func transferMessageFor(component models.Component, selected bool) string {
+	if !selected {
+		return "Not selected"
+	}
+	if !component.Package.Enabled {
+		return "Packaging disabled"
+	}
+	return "Waiting"
 }
 
 func buildStatusForSelection(selected bool) models.BuildStatus {

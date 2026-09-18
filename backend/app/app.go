@@ -15,6 +15,7 @@ import (
 	"release-launcher/backend/models"
 	"release-launcher/backend/packaging"
 	"release-launcher/backend/pipeline"
+	"release-launcher/backend/transfer"
 )
 
 // App is the small Wails-facing facade. Domain logic lives in backend services.
@@ -23,6 +24,7 @@ type App struct {
 	logger       *logging.Logger
 	buildService *build.Service
 	packager     *packaging.Service
+	transfer     *transfer.Service
 	pipeline     *pipeline.Service
 	loadErr      error
 
@@ -43,14 +45,17 @@ func New() (*App, error) {
 	service := config.NewService(paths, logger)
 	history := logging.NewJSONLWriter(paths.BuildLogFile)
 	packagingHistory := logging.NewJSONLWriter(paths.PackageLogFile)
+	transferHistory := logging.NewJSONLWriter(paths.TransferLogFile)
 	packager := packaging.NewService(logger, packagingHistory, paths.ReleaseDir)
+	transferService := transfer.NewService(logger, transferHistory, packager)
 	builder := build.NewService(logger, history)
 	return &App{
 		config:       service,
 		logger:       logger,
 		buildService: builder,
 		packager:     packager,
-		pipeline:     pipeline.NewService(builder, packager),
+		transfer:     transferService,
+		pipeline:     pipeline.NewService(builder, packager, transferService),
 	}, nil
 }
 
@@ -121,6 +126,25 @@ func (a *App) ValidateProject(project models.Project) []models.ValidationIssue {
 	return a.config.Validate([]models.Project{project})
 }
 
+// GetDaliConfig returns the global Dali transfer settings.
+func (a *App) GetDaliConfig() (models.DaliConfig, error) {
+	if a.loadErr != nil {
+		return models.DaliConfig{}, fmt.Errorf("configuration unavailable: %w", a.loadErr)
+	}
+	return a.config.DaliConfig()
+}
+
+// SaveDaliConfig persists the global Dali transfer settings.
+func (a *App) SaveDaliConfig(settings models.DaliConfig) (models.DaliConfig, error) {
+	if a.loadErr != nil {
+		return models.DaliConfig{}, fmt.Errorf("configuration unavailable: %w", a.loadErr)
+	}
+	if err := a.ensureConfigEditable(); err != nil {
+		return models.DaliConfig{}, err
+	}
+	return a.config.SaveDaliConfig(settings)
+}
+
 // GetPackagePlan calculates output paths and overwrite conflicts without writing files.
 func (a *App) GetPackagePlan(request models.PackageRequest) (models.PackagePlan, error) {
 	if a.loadErr != nil {
@@ -181,6 +205,70 @@ func (a *App) StartPackage(request models.PackageRequest) (models.PackageRun, er
 	return run, nil
 }
 
+// GetTransferPlan calculates the package files that are ready to send.
+func (a *App) GetTransferPlan(request models.TransferRequest) (models.TransferPlan, error) {
+	if a.loadErr != nil {
+		return models.TransferPlan{}, fmt.Errorf("configuration unavailable: %w", a.loadErr)
+	}
+	if a.BuildRunning() {
+		return models.TransferPlan{}, errors.New("a build or packaging operation is already running")
+	}
+	project, err := a.config.Project(request.ProjectID)
+	if err != nil {
+		return models.TransferPlan{}, err
+	}
+	return a.transfer.Plan(project, request.ComponentIDs, request.Version)
+}
+
+// StartTransfer sends existing release packages sequentially through Dali.
+func (a *App) StartTransfer(request models.TransferRequest) (models.TransferRun, error) {
+	if a.loadErr != nil {
+		return models.TransferRun{}, fmt.Errorf("configuration unavailable: %w", a.loadErr)
+	}
+	a.buildMu.Lock()
+	defer a.buildMu.Unlock()
+	if a.activeCancel != nil {
+		return models.TransferRun{}, errors.New("a build, packaging, or transfer operation is already running")
+	}
+	project, err := a.config.Project(request.ProjectID)
+	if err != nil {
+		return models.TransferRun{}, err
+	}
+	plan, err := a.transfer.Plan(project, request.ComponentIDs, request.Version)
+	if err != nil {
+		return models.TransferRun{}, err
+	}
+	if plan.HasMissing {
+		return models.TransferRun{}, errors.New("one or more selected packages do not exist")
+	}
+	settings, err := a.config.DaliConfig()
+	if err != nil {
+		return models.TransferRun{}, err
+	}
+	runID := a.nextRunID()
+	run, err := a.transfer.PrepareRun(runID, project, request)
+	if err != nil {
+		return models.TransferRun{}, err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	a.activeRunID, a.activeCancel, a.activeDone = run.ID, cancel, done
+	eventContext := a.runtimeCtx
+	a.logger.Info(fmt.Sprintf("Dali transfer started: %s", project.Name))
+	go func() {
+		finalRun := a.transfer.Execute(ctx, run, project, request, settings, a.eventSink(eventContext))
+		if finalRun.Status == models.TransferRunStatusCompleted {
+			a.logger.Info(fmt.Sprintf("Dali transfer completed: %s", project.Name))
+		} else if finalRun.Status == models.TransferRunStatusCancelled {
+			a.logger.Info(fmt.Sprintf("Dali transfer cancelled: %s", project.Name))
+		} else {
+			a.logger.Error(fmt.Sprintf("Dali transfer failed: %s", project.Name))
+		}
+		a.releaseRun(run.ID, done)
+	}()
+	return run, nil
+}
+
 // StartBuildAndPackage runs each selected component through build then packaging.
 func (a *App) StartBuildAndPackage(request models.PackageRequest) (models.ReleaseRun, error) {
 	if a.loadErr != nil {
@@ -220,6 +308,55 @@ func (a *App) StartBuildAndPackage(request models.PackageRequest) (models.Releas
 			a.logger.Info(fmt.Sprintf("Build and package cancelled: %s", project.Name))
 		} else {
 			a.logger.Error(fmt.Sprintf("Build and package failed: %s", project.Name))
+		}
+		a.releaseRun(run.ID, done)
+	}()
+	return run, nil
+}
+
+// StartBuildPackageAndSend runs build, package, and Dali transfer sequentially.
+func (a *App) StartBuildPackageAndSend(request models.PackageRequest) (models.ReleaseRun, error) {
+	if a.loadErr != nil {
+		return models.ReleaseRun{}, fmt.Errorf("configuration unavailable: %w", a.loadErr)
+	}
+	a.buildMu.Lock()
+	defer a.buildMu.Unlock()
+	if a.activeCancel != nil {
+		return models.ReleaseRun{}, errors.New("a build, packaging, or transfer operation is already running")
+	}
+	project, err := a.config.Project(request.ProjectID)
+	if err != nil {
+		return models.ReleaseRun{}, err
+	}
+	plan, err := a.packager.Plan(project, request.ComponentIDs, request.Version)
+	if err != nil {
+		return models.ReleaseRun{}, err
+	}
+	if plan.HasConflicts && !request.Overwrite {
+		return models.ReleaseRun{}, errors.New("one or more packages already exist; confirm replacement before building")
+	}
+	settings, err := a.config.DaliConfig()
+	if err != nil {
+		return models.ReleaseRun{}, err
+	}
+	runID := a.nextRunID()
+	run, err := a.pipeline.PrepareRun(runID, project, request)
+	if err != nil {
+		return models.ReleaseRun{}, err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	a.activeRunID, a.activeCancel, a.activeDone = run.ID, cancel, done
+	eventContext := a.runtimeCtx
+	a.logger.Info(fmt.Sprintf("Build, package, and Dali transfer started: %s", project.Name))
+	go func() {
+		finalRun := a.pipeline.ExecuteBuildPackageAndSend(ctx, run, project, request, settings, a.eventSink(eventContext))
+		if finalRun.Status == models.ReleaseRunStatusCompleted {
+			a.logger.Info(fmt.Sprintf("Build, package, and Dali transfer completed: %s", project.Name))
+		} else if finalRun.Status == models.ReleaseRunStatusCancelled {
+			a.logger.Info(fmt.Sprintf("Build, package, and Dali transfer cancelled: %s", project.Name))
+		} else {
+			a.logger.Error(fmt.Sprintf("Build, package, and Dali transfer failed: %s", project.Name))
 		}
 		a.releaseRun(run.ID, done)
 	}()

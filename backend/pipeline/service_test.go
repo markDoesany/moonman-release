@@ -11,9 +11,20 @@ import (
 	"release-launcher/backend/logging"
 	"release-launcher/backend/models"
 	"release-launcher/backend/packaging"
+	"release-launcher/backend/transfer"
 )
 
 type fakeBuilder struct{}
+
+type fakeSender struct{}
+
+func (fakeSender) SendOne(_ context.Context, _ string, project models.Project, component models.Component, packagePath string, _ models.DaliConfig, emit transfer.EventSink) models.TransferResult {
+	if emit != nil {
+		emit(models.BuildEvent{Type: "output", Stream: "stdout", Text: "file sent"})
+	}
+	now := time.Now()
+	return models.TransferResult{ProjectID: project.ID, ProjectName: project.Name, ComponentID: component.ID, ComponentName: component.Name, PackagePath: packagePath, Success: true, Status: models.TransferStatusSuccess, ExitCode: 0, StartTime: now, EndTime: now}
+}
 
 func (fakeBuilder) BuildComponent(_ context.Context, run models.BuildRun, project models.Project, component models.Component, emit build.EventSink) models.BuildResult {
 	outputPath := filepath.Join(component.Path, component.OutputDirectory)
@@ -87,6 +98,28 @@ func TestExecuteBuildsButSkipsDisabledPackaging(t *testing.T) {
 	state := final.Components[0]
 	if final.Status != models.ReleaseRunStatusCompleted || state.BuildStatus != models.BuildStatusSuccess || state.PackageStatus != models.PackageStatusSkipped || state.PackageMessage != "Packaging disabled" {
 		t.Fatalf("unexpected disabled packaging state: %+v, run=%+v", state, final)
+	}
+}
+
+func TestExecuteBuildPackageAndSend(t *testing.T) {
+	root := t.TempDir()
+	component := models.Component{ID: "admin", Name: "Admin", Path: filepath.Join(root, "admin"), OutputDirectory: "build", Package: models.PackageConfig{Enabled: true, Filename: "admin.zip"}}
+	project := models.Project{ID: "lokalstore", Name: "LokalStore", Components: []models.Component{component}}
+	if err := os.MkdirAll(component.Path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	packager := packaging.NewService(logging.New(filepath.Join(base, "app.log")), logging.NewJSONLWriter(filepath.Join(base, "packaging.jsonl")), filepath.Join(root, "releases"))
+	pipeline := NewService(fakeBuilder{}, packager, fakeSender{})
+	request := models.PackageRequest{ProjectID: project.ID, ComponentIDs: []string{"admin"}, Version: "1.0.0"}
+	run, err := pipeline.PrepareRun("run-release", project, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := pipeline.ExecuteBuildPackageAndSend(context.Background(), run, project, request, models.DaliConfig{Executable: "dali", Auto: true}, nil)
+	state := final.Components[0]
+	if final.Status != models.ReleaseRunStatusCompleted || state.BuildStatus != models.BuildStatusSuccess || state.PackageStatus != models.PackageStatusSuccess || state.TransferStatus != models.TransferStatusSuccess {
+		t.Fatalf("unexpected release state: %+v, run=%+v", state, final)
 	}
 }
 

@@ -211,6 +211,26 @@ export namespace models {
 		    return a;
 		}
 	}
+	export class DaliConfig {
+	    executable: string;
+	    peerName: string;
+	    peerAddress: string;
+	    auto: boolean;
+	    wait: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DaliConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.executable = source["executable"];
+	        this.peerName = source["peerName"];
+	        this.peerAddress = source["peerAddress"];
+	        this.auto = source["auto"];
+	        this.wait = source["wait"];
+	    }
+	}
 	export class PackageResult {
 	    projectId: string;
 	    projectName: string;
@@ -476,6 +496,68 @@ export namespace models {
 		    return a;
 		}
 	}
+	export class TransferResult {
+	    projectId: string;
+	    projectName: string;
+	    componentId: string;
+	    componentName: string;
+	    success: boolean;
+	    status: string;
+	    packagePath: string;
+	    executable: string;
+	    arguments: string[];
+	    peerName?: string;
+	    peerAddress?: string;
+	    exitCode: number;
+	    // Go type: time
+	    startTime: any;
+	    // Go type: time
+	    endTime: any;
+	    durationMs: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TransferResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.projectName = source["projectName"];
+	        this.componentId = source["componentId"];
+	        this.componentName = source["componentName"];
+	        this.success = source["success"];
+	        this.status = source["status"];
+	        this.packagePath = source["packagePath"];
+	        this.executable = source["executable"];
+	        this.arguments = source["arguments"];
+	        this.peerName = source["peerName"];
+	        this.peerAddress = source["peerAddress"];
+	        this.exitCode = source["exitCode"];
+	        this.startTime = this.convertValues(source["startTime"], null);
+	        this.endTime = this.convertValues(source["endTime"], null);
+	        this.durationMs = source["durationMs"];
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ReleaseComponentState {
 	    componentId: string;
 	    componentName: string;
@@ -486,6 +568,9 @@ export namespace models {
 	    packageStatus: string;
 	    packageMessage: string;
 	    packageResult?: PackageResult;
+	    transferStatus: string;
+	    transferMessage: string;
+	    transferResult?: TransferResult;
 	
 	    static createFrom(source: any = {}) {
 	        return new ReleaseComponentState(source);
@@ -502,6 +587,9 @@ export namespace models {
 	        this.packageStatus = source["packageStatus"];
 	        this.packageMessage = source["packageMessage"];
 	        this.packageResult = this.convertValues(source["packageResult"], PackageResult);
+	        this.transferStatus = source["transferStatus"];
+	        this.transferMessage = source["transferMessage"];
+	        this.transferResult = this.convertValues(source["transferResult"], TransferResult);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -547,6 +635,174 @@ export namespace models {
 	        this.version = source["version"];
 	        this.status = source["status"];
 	        this.components = this.convertValues(source["components"], ReleaseComponentState);
+	        this.startTime = this.convertValues(source["startTime"], null);
+	        this.endTime = this.convertValues(source["endTime"], null);
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TransferComponentState {
+	    componentId: string;
+	    componentName: string;
+	    selected: boolean;
+	    status: string;
+	    message: string;
+	    result?: TransferResult;
+	
+	    static createFrom(source: any = {}) {
+	        return new TransferComponentState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.componentId = source["componentId"];
+	        this.componentName = source["componentName"];
+	        this.selected = source["selected"];
+	        this.status = source["status"];
+	        this.message = source["message"];
+	        this.result = this.convertValues(source["result"], TransferResult);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TransferPlanItem {
+	    componentId: string;
+	    componentName: string;
+	    selected: boolean;
+	    enabled: boolean;
+	    packagePath: string;
+	    exists: boolean;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TransferPlanItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.componentId = source["componentId"];
+	        this.componentName = source["componentName"];
+	        this.selected = source["selected"];
+	        this.enabled = source["enabled"];
+	        this.packagePath = source["packagePath"];
+	        this.exists = source["exists"];
+	        this.error = source["error"];
+	    }
+	}
+	export class TransferPlan {
+	    projectId: string;
+	    projectName: string;
+	    version: string;
+	    components: TransferPlanItem[];
+	    hasMissing: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TransferPlan(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.projectName = source["projectName"];
+	        this.version = source["version"];
+	        this.components = this.convertValues(source["components"], TransferPlanItem);
+	        this.hasMissing = source["hasMissing"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class TransferRequest {
+	    projectId: string;
+	    componentIds: string[];
+	    version: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TransferRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.componentIds = source["componentIds"];
+	        this.version = source["version"];
+	    }
+	}
+	
+	export class TransferRun {
+	    id: string;
+	    projectId: string;
+	    projectName: string;
+	    version: string;
+	    status: string;
+	    components: TransferComponentState[];
+	    // Go type: time
+	    startTime: any;
+	    // Go type: time
+	    endTime?: any;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TransferRun(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.projectId = source["projectId"];
+	        this.projectName = source["projectName"];
+	        this.version = source["version"];
+	        this.status = source["status"];
+	        this.components = this.convertValues(source["components"], TransferComponentState);
 	        this.startTime = this.convertValues(source["startTime"], null);
 	        this.endTime = this.convertValues(source["endTime"], null);
 	        this.error = source["error"];
