@@ -22,15 +22,16 @@ var sampleFS embed.FS
 
 // Paths contains all application-local persistent paths.
 type Paths struct {
-	BaseDir        string
-	ConfigDir      string
-	ConfigFile     string
-	BackupFile     string
-	LogDir         string
-	LogFile        string
-	BuildLogFile   string
-	PackageLogFile string
-	ReleaseDir     string
+	BaseDir         string
+	ConfigDir       string
+	ConfigFile      string
+	BackupFile      string
+	LogDir          string
+	LogFile         string
+	BuildLogFile    string
+	PackageLogFile  string
+	TransferLogFile string
+	ReleaseDir      string
 }
 
 // ResolvePaths selects the repository/app directory, with an override for tests and installations.
@@ -59,15 +60,16 @@ func ResolvePaths() (Paths, error) {
 	configDir := filepath.Join(baseDir, "configs")
 	logDir := filepath.Join(baseDir, "logs")
 	return Paths{
-		BaseDir:        baseDir,
-		ConfigDir:      configDir,
-		ConfigFile:     filepath.Join(configDir, "projects.yaml"),
-		BackupFile:     filepath.Join(configDir, "projects.yaml.bak"),
-		LogDir:         logDir,
-		LogFile:        filepath.Join(logDir, "app.log"),
-		BuildLogFile:   filepath.Join(logDir, "builds.jsonl"),
-		PackageLogFile: filepath.Join(logDir, "packaging.jsonl"),
-		ReleaseDir:     filepath.Join(baseDir, "releases"),
+		BaseDir:         baseDir,
+		ConfigDir:       configDir,
+		ConfigFile:      filepath.Join(configDir, "projects.yaml"),
+		BackupFile:      filepath.Join(configDir, "projects.yaml.bak"),
+		LogDir:          logDir,
+		LogFile:         filepath.Join(logDir, "app.log"),
+		BuildLogFile:    filepath.Join(logDir, "builds.jsonl"),
+		PackageLogFile:  filepath.Join(logDir, "packaging.jsonl"),
+		TransferLogFile: filepath.Join(logDir, "transfers.jsonl"),
+		ReleaseDir:      filepath.Join(baseDir, "releases"),
 	}, nil
 }
 
@@ -79,6 +81,7 @@ type Service struct {
 	loaded bool
 	issues []models.ValidationIssue
 	data   []models.Project
+	dali   models.DaliConfig
 }
 
 func NewService(paths Paths, logger *logging.Logger) *Service {
@@ -100,13 +103,14 @@ func (s *Service) Load() error {
 		if err != nil {
 			return fmt.Errorf("read embedded sample configuration: %w", err)
 		}
-		projects, err := parseAndValidate(contents)
+		projects, dali, err := parseAndValidate(contents)
 		if err != nil {
 			return fmt.Errorf("validate embedded sample configuration: %w", err)
 		}
 		s.data = projects
+		s.dali = dali
 		s.loaded = true
-		if err := s.writeLocked(projects, false); err != nil {
+		if err := s.writeLocked(projects, dali, false); err != nil {
 			return fmt.Errorf("seed configuration: %w", err)
 		}
 		s.logger.Info("Configuration seeded with LokalStore sample")
@@ -117,9 +121,10 @@ func (s *Service) Load() error {
 		return fmt.Errorf("read configuration: %w", err)
 	}
 
-	projects, primaryErr := parseAndValidate(contents)
+	projects, dali, primaryErr := parseAndValidate(contents)
 	if primaryErr == nil {
 		s.data = projects
+		s.dali = dali
 		s.issues = nil
 		s.loaded = true
 		s.logger.Info("Configuration loaded")
@@ -128,9 +133,10 @@ func (s *Service) Load() error {
 
 	backup, backupErr := os.ReadFile(s.paths.BackupFile)
 	if backupErr == nil {
-		backupProjects, validBackupErr := parseAndValidate(backup)
+		backupProjects, backupDali, validBackupErr := parseAndValidate(backup)
 		if validBackupErr == nil {
 			s.data = backupProjects
+			s.dali = backupDali
 			s.loaded = true
 			if restoreErr := s.replaceFileLocked(backup, false); restoreErr != nil {
 				return fmt.Errorf("restore configuration backup: %w", restoreErr)
@@ -170,6 +176,35 @@ func (s *Service) Project(id string) (models.Project, error) {
 	return models.Project{}, fmt.Errorf("project %q not found", id)
 }
 
+// DaliConfig returns the current Dali transfer settings.
+func (s *Service) DaliConfig() (models.DaliConfig, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.loaded {
+		return models.DaliConfig{}, s.loadErrorLocked()
+	}
+	return s.dali, nil
+}
+
+// SaveDaliConfig persists Dali transfer settings alongside project configuration.
+func (s *Service) SaveDaliConfig(settings models.DaliConfig) (models.DaliConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.loaded {
+		return models.DaliConfig{}, s.loadErrorLocked()
+	}
+	settings = normalizeDaliConfig(settings)
+	if err := validateDaliConfig(settings); err != nil {
+		return models.DaliConfig{}, err
+	}
+	if err := s.writeLocked(s.data, settings, true); err != nil {
+		return models.DaliConfig{}, err
+	}
+	s.dali = settings
+	s.logger.Info("Dali configuration saved")
+	return settings, nil
+}
+
 func (s *Service) SaveProject(project models.Project) (models.Project, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -195,7 +230,7 @@ func (s *Service) SaveProject(project models.Project) (models.Project, error) {
 		s.logger.Error("Configuration validation failed: " + formatIssues(issues))
 		return models.Project{}, errors.New(formatIssues(issues))
 	}
-	if err := s.writeLocked(updated, true); err != nil {
+	if err := s.writeLocked(updated, s.dali, true); err != nil {
 		return models.Project{}, err
 	}
 	s.data = updated
@@ -226,7 +261,7 @@ func (s *Service) DeleteProject(id string) error {
 	if issues := Validate(updated); len(issues) > 0 {
 		return errors.New(formatIssues(issues))
 	}
-	if err := s.writeLocked(updated, true); err != nil {
+	if err := s.writeLocked(updated, s.dali, true); err != nil {
 		return err
 	}
 	s.data = updated
@@ -245,10 +280,11 @@ func (s *Service) loadErrorLocked() error {
 	return errors.New("configuration is not loaded")
 }
 
-func (s *Service) writeLocked(projects []models.Project, keepBackup bool) error {
+func (s *Service) writeLocked(projects []models.Project, dali models.DaliConfig, keepBackup bool) error {
 	contents, err := yaml.Marshal(struct {
-		Projects []models.Project `yaml:"projects"`
-	}{Projects: projects})
+		Projects []models.Project  `yaml:"projects"`
+		Dali     models.DaliConfig `yaml:"dali"`
+	}{Projects: projects, Dali: dali})
 	if err != nil {
 		return fmt.Errorf("marshal configuration: %w", err)
 	}
@@ -282,18 +318,49 @@ func (s *Service) replaceFileLocked(contents []byte, keepBackup bool) error {
 	return s.replaceFileLockedWithBackup(contents, keepBackup)
 }
 
-func parseAndValidate(contents []byte) ([]models.Project, error) {
+func parseAndValidate(contents []byte) ([]models.Project, models.DaliConfig, error) {
 	var document struct {
-		Projects []models.Project `yaml:"projects"`
+		Projects []models.Project   `yaml:"projects"`
+		Dali     *models.DaliConfig `yaml:"dali"`
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(contents))
 	if err := decoder.Decode(&document); err != nil {
-		return nil, fmt.Errorf("parse YAML: %w", err)
+		return nil, models.DaliConfig{}, fmt.Errorf("parse YAML: %w", err)
 	}
 	if issues := Validate(document.Projects); len(issues) > 0 {
-		return nil, errors.New(formatIssues(issues))
+		return nil, models.DaliConfig{}, errors.New(formatIssues(issues))
 	}
-	return document.Projects, nil
+	dali := models.DefaultDaliConfig()
+	if document.Dali != nil {
+		dali = normalizeDaliConfig(*document.Dali)
+	}
+	if err := validateDaliConfig(dali); err != nil {
+		return nil, models.DaliConfig{}, err
+	}
+	return document.Projects, dali, nil
+}
+
+func normalizeDaliConfig(settings models.DaliConfig) models.DaliConfig {
+	settings.Executable = strings.TrimSpace(settings.Executable)
+	if settings.Executable == "" {
+		settings.Executable = models.DefaultDaliConfig().Executable
+	}
+	settings.PeerName = strings.TrimSpace(settings.PeerName)
+	settings.PeerAddress = strings.TrimSpace(settings.PeerAddress)
+	return settings
+}
+
+func validateDaliConfig(settings models.DaliConfig) error {
+	if strings.TrimSpace(settings.Executable) == "" {
+		return errors.New("dali executable cannot be empty")
+	}
+	if strings.TrimSpace(settings.PeerName) != "" && strings.TrimSpace(settings.PeerAddress) != "" {
+		return errors.New("configure either a Dali peer name or peer address, not both")
+	}
+	if !settings.Auto && strings.TrimSpace(settings.PeerName) == "" && strings.TrimSpace(settings.PeerAddress) == "" {
+		return errors.New("configure a Dali peer name/address or enable automatic peer selection")
+	}
+	return nil
 }
 
 var slugPattern = regexp.MustCompile(`[^a-z0-9]+`)

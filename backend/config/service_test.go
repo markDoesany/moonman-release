@@ -14,15 +14,16 @@ func testPaths(t *testing.T) Paths {
 	t.Helper()
 	base := t.TempDir()
 	return Paths{
-		BaseDir:        base,
-		ConfigDir:      filepath.Join(base, "configs"),
-		ConfigFile:     filepath.Join(base, "configs", "projects.yaml"),
-		BackupFile:     filepath.Join(base, "configs", "projects.yaml.bak"),
-		LogDir:         filepath.Join(base, "logs"),
-		LogFile:        filepath.Join(base, "logs", "app.log"),
-		BuildLogFile:   filepath.Join(base, "logs", "builds.jsonl"),
-		PackageLogFile: filepath.Join(base, "logs", "packaging.jsonl"),
-		ReleaseDir:     filepath.Join(base, "releases"),
+		BaseDir:         base,
+		ConfigDir:       filepath.Join(base, "configs"),
+		ConfigFile:      filepath.Join(base, "configs", "projects.yaml"),
+		BackupFile:      filepath.Join(base, "configs", "projects.yaml.bak"),
+		LogDir:          filepath.Join(base, "logs"),
+		LogFile:         filepath.Join(base, "logs", "app.log"),
+		BuildLogFile:    filepath.Join(base, "logs", "builds.jsonl"),
+		PackageLogFile:  filepath.Join(base, "logs", "packaging.jsonl"),
+		TransferLogFile: filepath.Join(base, "logs", "transfers.jsonl"),
+		ReleaseDir:      filepath.Join(base, "releases"),
 	}
 }
 
@@ -42,6 +43,30 @@ func TestLoadSeedsSampleConfiguration(t *testing.T) {
 	}
 	if _, err := os.Stat(paths.ConfigFile); err != nil {
 		t.Fatalf("seeded configuration was not written: %v", err)
+	}
+}
+
+func TestDaliConfigurationDefaultsAndPersists(t *testing.T) {
+	paths := testPaths(t)
+	service := NewService(paths, logging.New(paths.LogFile))
+	if err := service.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	settings, err := service.DaliConfig()
+	if err != nil || settings.Executable != "dali" || !settings.Auto {
+		t.Fatalf("unexpected default Dali settings: %+v, error = %v", settings, err)
+	}
+	saved, err := service.SaveDaliConfig(models.DaliConfig{Executable: "C:/Tools/dali.exe", PeerName: "DevOps", Wait: true})
+	if err != nil || saved.PeerName != "DevOps" {
+		t.Fatalf("SaveDaliConfig() = %+v, error = %v", saved, err)
+	}
+	reloaded := NewService(paths, logging.New(paths.LogFile))
+	if err := reloaded.Load(); err != nil {
+		t.Fatalf("reload error = %v", err)
+	}
+	loaded, err := reloaded.DaliConfig()
+	if err != nil || loaded.Executable != "C:/Tools/dali.exe" || loaded.PeerName != "DevOps" || !loaded.Wait {
+		t.Fatalf("persisted Dali settings = %+v, error = %v", loaded, err)
 	}
 }
 
