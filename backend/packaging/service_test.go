@@ -150,6 +150,34 @@ func TestPackagePlanUsesRequestedReleaseDirectory(t *testing.T) {
 	}
 }
 
+func TestPackagePlanUsesBuildFolderWhenOutputDirectoryIsProjectRoot(t *testing.T) {
+	root := t.TempDir()
+	componentRoot := filepath.Join(root, "admin")
+	if err := os.MkdirAll(filepath.Join(componentRoot, "build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	project := models.Project{
+		ID:   "project",
+		Name: "Project",
+		Components: []models.Component{{
+			ID:              "admin",
+			Name:            "Admin",
+			Path:            componentRoot,
+			OutputDirectory: componentRoot,
+			Package:         models.PackageConfig{Enabled: true, Filename: "admin.zip"},
+		}},
+	}
+	service, _ := packageService(t, filepath.Join(root, "release"))
+	plan, err := service.Plan(project, []string{"admin"}, "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(componentRoot, "build")
+	if plan.Components[0].SourcePath != want {
+		t.Fatalf("source path = %q, want %q", plan.Components[0].SourcePath, want)
+	}
+}
+
 func TestPackagePlanRejectsRelativeReleaseDirectory(t *testing.T) {
 	project, releaseRoot := packageProject(t, "admin")
 	service, _ := packageService(t, releaseRoot)

@@ -454,9 +454,9 @@ func skipRemaining(states []models.BuildComponentState, reason string, sink Even
 }
 
 func outputPath(component models.Component) string {
-	path, err := filepath.Abs(pathutil.Resolve(component.Path, component.OutputDirectory))
+	path, err := filepath.Abs(pathutil.ResolveOutputDirectory(component.Path, component.OutputDirectory))
 	if err != nil {
-		return pathutil.Resolve(component.Path, component.OutputDirectory)
+		return pathutil.ResolveOutputDirectory(component.Path, component.OutputDirectory)
 	}
 	return filepath.Clean(path)
 }

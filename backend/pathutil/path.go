@@ -2,6 +2,7 @@ package pathutil
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -16,6 +17,28 @@ func Resolve(base, configured string) string {
 		return filepath.Clean(base)
 	}
 	return filepath.Clean(filepath.Join(base, configured))
+}
+
+// ResolveOutputDirectory returns the directory that contains a component's
+// build artifacts. Older project files sometimes stored the component root
+// (or an empty value) here. Treating that as the output would package source
+// files, so those legacy values use the conventional build directory.
+func ResolveOutputDirectory(base, configured string) string {
+	basePath := filepath.Clean(base)
+	resolved := Resolve(basePath, configured)
+	baseAbs, baseErr := filepath.Abs(basePath)
+	resolvedAbs, resolvedErr := filepath.Abs(resolved)
+	if strings.TrimSpace(configured) == "" || (baseErr == nil && resolvedErr == nil && samePath(baseAbs, resolvedAbs)) {
+		return filepath.Join(basePath, "build")
+	}
+	return resolved
+}
+
+func samePath(left, right string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+	}
+	return filepath.Clean(left) == filepath.Clean(right)
 }
 
 // RelativeIfInside stores a selected directory relative to base when possible.

@@ -642,9 +642,9 @@ func packageResults(run models.PackageRun) []models.PackageResult {
 }
 
 func sourcePath(component models.Component) string {
-	path, err := filepath.Abs(pathutil.Resolve(component.Path, component.OutputDirectory))
+	path, err := filepath.Abs(pathutil.ResolveOutputDirectory(component.Path, component.OutputDirectory))
 	if err != nil {
-		return filepath.Clean(pathutil.Resolve(component.Path, component.OutputDirectory))
+		return filepath.Clean(pathutil.ResolveOutputDirectory(component.Path, component.OutputDirectory))
 	}
 	return filepath.Clean(path)
 }
