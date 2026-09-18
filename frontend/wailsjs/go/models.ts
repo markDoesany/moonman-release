@@ -439,6 +439,7 @@ export namespace models {
 	    filenameTemplate?: string;
 	    packageNames?: Record<string, string>;
 	    environment?: string;
+	    releaseDirectory?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new PackageRequest(source);
@@ -453,6 +454,7 @@ export namespace models {
 	        this.filenameTemplate = source["filenameTemplate"];
 	        this.packageNames = source["packageNames"];
 	        this.environment = source["environment"];
+	        this.releaseDirectory = source["releaseDirectory"];
 	    }
 	}
 	
@@ -890,6 +892,7 @@ export namespace models {
 	    filenameTemplate?: string;
 	    packageNames?: Record<string, string>;
 	    environment?: string;
+	    releaseDirectory?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TransferRequest(source);
@@ -903,6 +906,7 @@ export namespace models {
 	        this.filenameTemplate = source["filenameTemplate"];
 	        this.packageNames = source["packageNames"];
 	        this.environment = source["environment"];
+	        this.releaseDirectory = source["releaseDirectory"];
 	    }
 	}
 	

@@ -146,6 +146,7 @@ export type TransferRequest = {
   filenameTemplate?: string;
   packageNames?: Record<string, string>;
   environment?: string;
+  releaseDirectory?: string;
 };
 
 export type TransferPlanItem = {
@@ -222,6 +223,7 @@ export type PackageRequest = {
   filenameTemplate?: string;
   packageNames?: Record<string, string>;
   environment?: string;
+  releaseDirectory?: string;
 };
 
 export type PackagePlanItem = {

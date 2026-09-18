@@ -33,6 +33,7 @@ type PackageRequest struct {
 	FilenameTemplate string            `json:"filenameTemplate,omitempty"`
 	PackageNames     map[string]string `json:"packageNames,omitempty"`
 	Environment      string            `json:"environment,omitempty"`
+	ReleaseDirectory string            `json:"releaseDirectory,omitempty"`
 }
 
 // PackagePlanItem describes one potential archive and any overwrite conflict.

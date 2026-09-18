@@ -128,6 +128,43 @@ func TestPackagePlanDetectsConflictAndOverwrite(t *testing.T) {
 	}
 }
 
+func TestPackagePlanUsesRequestedReleaseDirectory(t *testing.T) {
+	project, releaseRoot := packageProject(t, "admin")
+	customDirectory := filepath.Join(t.TempDir(), "approved-release")
+	service, _ := packageService(t, releaseRoot)
+
+	plan, err := service.PlanRequest(project, models.PackageRequest{
+		ProjectID:        project.ID,
+		ComponentIDs:     []string{"admin"},
+		Version:          "1.0.0",
+		ReleaseDirectory: customDirectory,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.ReleaseDirectory != customDirectory {
+		t.Fatalf("release directory = %q, want %q", plan.ReleaseDirectory, customDirectory)
+	}
+	if plan.Components[0].PackagePath != filepath.Join(customDirectory, "admin.zip") {
+		t.Fatalf("package path = %q, want %q", plan.Components[0].PackagePath, filepath.Join(customDirectory, "admin.zip"))
+	}
+}
+
+func TestPackagePlanRejectsRelativeReleaseDirectory(t *testing.T) {
+	project, releaseRoot := packageProject(t, "admin")
+	service, _ := packageService(t, releaseRoot)
+
+	_, err := service.PlanRequest(project, models.PackageRequest{
+		ProjectID:        project.ID,
+		ComponentIDs:     []string{"admin"},
+		Version:          "1.0.0",
+		ReleaseDirectory: "relative-release",
+	})
+	if err == nil || err.Error() != "release directory must be an absolute path" {
+		t.Fatalf("unexpected relative directory error: %v", err)
+	}
+}
+
 func TestExecuteStopsAfterPackageFailure(t *testing.T) {
 	project, releaseRoot := packageProject(t, "admin", "customer", "merchant")
 	writeFile(t, filepath.Join(project.Components[0].Path, project.Components[0].OutputDirectory, "index.html"), "admin")

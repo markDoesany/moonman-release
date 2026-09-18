@@ -44,6 +44,7 @@ type TransferRequest struct {
 	FilenameTemplate string            `json:"filenameTemplate,omitempty"`
 	PackageNames     map[string]string `json:"packageNames,omitempty"`
 	Environment      string            `json:"environment,omitempty"`
+	ReleaseDirectory string            `json:"releaseDirectory,omitempty"`
 }
 
 // TransferPlanItem describes the archive that will be sent.

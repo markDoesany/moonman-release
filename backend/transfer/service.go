@@ -119,7 +119,7 @@ func (s *Service) Plan(project models.Project, componentIDs []string, version st
 }
 
 func (s *Service) PlanRequest(project models.Project, request models.TransferRequest) (models.TransferPlan, error) {
-	packagePlan, err := s.packager.PlanRequest(project, models.PackageRequest{ProjectID: project.ID, ComponentIDs: request.ComponentIDs, Version: request.Version, FilenameTemplate: request.FilenameTemplate, PackageNames: request.PackageNames})
+	packagePlan, err := s.packager.PlanRequest(project, models.PackageRequest{ProjectID: project.ID, ComponentIDs: request.ComponentIDs, Version: request.Version, FilenameTemplate: request.FilenameTemplate, PackageNames: request.PackageNames, ReleaseDirectory: request.ReleaseDirectory})
 	if err != nil {
 		return models.TransferPlan{}, err
 	}

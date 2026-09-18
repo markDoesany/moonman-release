@@ -76,6 +76,12 @@ func (s *Service) PlanRequest(project models.Project, request models.PackageRequ
 	known := make(map[string]bool, len(project.Components))
 	items := make([]models.PackagePlanItem, 0, len(project.Components))
 	releaseDirectory := filepath.Join(s.releaseRoot, safePathSegment(project.Name, project.ID), version)
+	if requestedDirectory := strings.TrimSpace(request.ReleaseDirectory); requestedDirectory != "" {
+		if !filepath.IsAbs(requestedDirectory) {
+			return models.PackagePlan{}, errors.New("release directory must be an absolute path")
+		}
+		releaseDirectory = filepath.Clean(requestedDirectory)
+	}
 	stamp := time.Now()
 	sharedTemplate := strings.TrimSpace(request.FilenameTemplate)
 	for _, component := range project.Components {
