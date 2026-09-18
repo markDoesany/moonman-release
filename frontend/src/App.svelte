@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { EventsOn } from '../wailsjs/runtime/runtime';
+  import logo from './assets/release-launcher-logo.png';
   import { CancelBuild, DeleteProject, GetDaliConfig, GetPackagePlan, GetProjects, GetTransferPlan, PickDirectory, PickFile, SaveDaliConfig, SaveProject, StartBuild, StartBuildAndPackage, StartBuildPackageAndSend, StartPackage, StartTransfer } from './backend';
   import type { BuildEvent, BuildOutputLine, BuildRun, Component, DaliConfig, PackagePlan, PackageRun, PackageRequest, Project, ReleaseRun, TransferRequest, TransferRun, ValidationIssue } from './types';
 
@@ -25,6 +26,7 @@
   let releaseRun: ReleaseRun | null = null;
   let daliConfig: DaliConfig = { executable: 'dali', peerName: '', peerAddress: '', auto: true, wait: false };
   let packageVersion = '1.0.0';
+  let releaseEnvironment = 'dev';
   let packageTemplate = '';
   let namingPlan: PackagePlan | null = null;
   let namingNames: Record<string, string> = {};
@@ -37,6 +39,7 @@
   let issues: ValidationIssue[] = [];
 
   $: selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
+  $: availableEnvironments = Array.from(new Set(['dev', 'staging', 'prod', ...(selectedProject?.components.flatMap((component) => Object.keys(component.buildCommands ?? {})) ?? [])]));
   $: operationRunning = (operationStarting && namingPlan === null) || buildRun?.status === 'running' || packageRun?.status === 'running' || transferRun?.status === 'running' || releaseRun?.status === 'running';
   $: operationActive = operationRunning || namingPlan !== null;
 
@@ -66,6 +69,8 @@
     if (operationActive) return;
     selectedProjectId = id;
     selectedComponentIds = projects.find((project) => project.id === id)?.components.map((component) => component.id) ?? [];
+    const environments = projects.find((project) => project.id === id)?.components.flatMap((component) => Object.keys(component.buildCommands ?? {})) ?? [];
+    if (!['dev', 'staging', 'prod', ...environments].includes(releaseEnvironment)) releaseEnvironment = 'dev';
   }
 
   function toggleComponent(component: Component) {
@@ -105,7 +110,7 @@
     }
     prepareOperation('build');
     try {
-      buildRun = await StartBuild({ projectId: selectedProject.id, componentIds: selectedComponentIds });
+      buildRun = await StartBuild({ projectId: selectedProject.id, componentIds: selectedComponentIds, environment: releaseEnvironment });
       finishStarting(pendingBuildEvents);
     } catch (error) {
       operationStarting = false;
@@ -114,7 +119,7 @@
   }
 
   function packageRequest(overwrite = false): PackageRequest {
-    return { projectId: selectedProject?.id ?? '', componentIds: selectedComponentIds, version: packageVersion, overwrite, filenameTemplate: packageTemplate.trim(), packageNames: { ...namingNames } };
+    return { projectId: selectedProject?.id ?? '', componentIds: selectedComponentIds, version: packageVersion, overwrite, filenameTemplate: packageTemplate.trim(), packageNames: { ...namingNames }, environment: releaseEnvironment };
   }
 
   async function beginNaming(kind: Operation) {
@@ -433,6 +438,24 @@
     settingsProject = { ...settingsProject, components: settingsProject.components.map((component, componentIndex) => componentIndex === index ? { ...component, ...changes } : component) };
   }
 
+  function environmentEntries(component: Component): string[] {
+    return Array.from(new Set(['dev', 'staging', 'prod', ...Object.keys(component.buildCommands ?? {})]));
+  }
+
+  function updateEnvironmentCommand(index: number, environment: string, command: string) {
+    if (!settingsProject || operationActive) return;
+    const component = settingsProject.components[index];
+    updateComponent(index, { buildCommands: { ...(component.buildCommands ?? {}), [environment]: command } });
+  }
+
+  function addBuildEnvironment(index: number) {
+    if (!settingsProject || operationActive) return;
+    const name = window.prompt('Environment name (for example, qa):', 'qa')?.trim().toLowerCase();
+    if (!name) return;
+    const component = settingsProject.components[index];
+    updateComponent(index, { buildCommands: { ...(component.buildCommands ?? {}), [name]: component.buildCommands?.[name] ?? '' } });
+  }
+
   async function browseProjectPath(index: number) {
     if (!settingsProject || operationActive) return;
     try {
@@ -476,7 +499,7 @@
   }
 
   function emptyComponent(): Component {
-    return { id: '', name: '', path: '', buildCommand: '', outputDirectory: '', package: { enabled: true, filename: '{project}-{component}-v{version}-{date}.zip' } };
+    return { id: '', name: '', path: '', buildCommand: 'npm run build', buildCommands: { dev: '', staging: '', prod: '' }, outputDirectory: '', package: { enabled: true, filename: '{project}-{component}-v{version}-{date}.zip' } };
   }
 
   function statusLabel(status: string): string { return status.charAt(0).toUpperCase() + status.slice(1); }
@@ -491,7 +514,7 @@
 
 <div class="shell">
   <header class="topbar">
-    <div><p class="eyebrow">Developer release workspace</p><h1>Release Launcher</h1></div>
+    <div class="brand"><img src={logo} alt="Release Launcher logo" /><div><p class="eyebrow">Developer release workspace</p><h1>Release Launcher</h1></div></div>
     <button class="ghost-button" disabled={operationActive} on:click={() => (view = view === 'launcher' ? 'settings' : 'launcher')}>
       {view === 'launcher' ? 'Project Settings' : 'Back to Launcher'}
     </button>
@@ -517,6 +540,7 @@
           </select>
         </label>
         <label class="field version-field"><span>Release Version</span><input value={packageVersion} disabled={operationActive} on:input={(event) => (packageVersion = inputValue(event))} placeholder="1.0.0" /></label>
+        <label class="field environment-field"><span>Build Environment</span><select value={releaseEnvironment} disabled={operationActive} on:change={(event) => (releaseEnvironment = selectValue(event))}>{#each availableEnvironments as environment}<option value={environment}>{environment}</option>{/each}</select></label>
         <label class="field template-field"><span>Package naming template</span><input value={packageTemplate} disabled={operationActive} on:input={(event) => (packageTemplate = inputValue(event))} placeholder="Use component templates" /><small>&#123;project&#125; &#123;component&#125; &#123;version&#125; &#123;date&#125; &#123;time&#125; &#123;datetime&#125;</small></label>
       </div>
 
@@ -585,7 +609,8 @@
         {#each settingsProject.components as component, index}<article class="component-editor"><div class="component-editor-title"><h3>{component.name || 'New component'}</h3><button class="remove-button" disabled={operationActive} on:click={() => removeComponent(index)}>Remove</button></div><div class="form-grid">
           <label class="field"><span>Component Name</span><input disabled={operationActive} value={component.name} on:input={(event) => updateComponent(index, { name: inputValue(event) })} /></label>
           <div class="field"><span>Component Project Path</span><div class="input-action"><input disabled={operationActive} value={component.path} on:input={(event) => updateComponent(index, { path: inputValue(event) })} placeholder="C:\Projects\LokalStore\Admin" /><button class="secondary-button" disabled={operationActive} on:click={() => browseProjectPath(index)}>Browse</button></div></div>
-          <label class="field"><span>Build Command</span><input disabled={operationActive} value={component.buildCommand} on:input={(event) => updateComponent(index, { buildCommand: inputValue(event) })} placeholder="npm run build" /></label>
+          <label class="field"><span>Default Build Command</span><input disabled={operationActive} value={component.buildCommand} on:input={(event) => updateComponent(index, { buildCommand: inputValue(event) })} placeholder="npm run build" /><small class="field-help">Used when an environment override is blank.</small></label>
+          <div class="environment-commands"><div class="environment-heading"><span>Environment Build Commands</span><button class="text-button" disabled={operationActive} on:click={() => addBuildEnvironment(index)}>+ Add environment</button></div>{#each environmentEntries(component) as environment}<div class="environment-command"><label class="field"><span>{environment}</span><input disabled={operationActive} value={component.buildCommands?.[environment] ?? ''} on:input={(event) => updateEnvironmentCommand(index, environment, inputValue(event))} placeholder={`Command for ${environment} (optional)`} /></label></div>{/each}<small class="field-help">Choose the environment on the launcher before building, packaging, or sending.</small></div>
           <div class="field"><span>Component Output Directory</span><div class="input-action"><input disabled={operationActive} value={component.outputDirectory} on:input={(event) => updateComponent(index, { outputDirectory: inputValue(event) })} placeholder="build or an absolute path" /><button class="secondary-button" disabled={operationActive} on:click={() => browseOutputDirectory(index)}>Browse</button></div><small class="field-help">Folders inside the project are saved as relative paths.</small></div>
           <label class="field checkbox-field"><input type="checkbox" disabled={operationActive} checked={component.package.enabled} on:change={(event) => updateComponent(index, { package: { ...component.package, enabled: checkedValue(event) } })} /><span>Package Enabled</span></label>
           <label class="field"><span>Package Filename Template</span><input disabled={operationActive} value={component.package.filename} on:input={(event) => updateComponent(index, { package: { ...component.package, filename: inputValue(event) } })} placeholder="&#123;project&#125;-&#123;component&#125;-v&#123;version&#125;-&#123;date&#125;.zip" /><small class="field-help">Tokens: &#123;project&#125; &#123;component&#125; &#123;version&#125; &#123;date&#125; &#123;time&#125; &#123;datetime&#125;</small></label>
