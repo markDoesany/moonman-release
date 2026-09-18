@@ -22,7 +22,7 @@ export namespace models {
 	    retryOfRunId?: string;
 	    attempt?: number;
 	    retryStage?: string;
-	    command?: string;
+	    command: string;
 	    daliCommands?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
