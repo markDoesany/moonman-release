@@ -189,6 +189,28 @@ func TestSaveProjectGeneratesIDsAndCreatesBackup(t *testing.T) {
 	}
 }
 
+func TestSaveProjectWithNoComponentsReturnsEmptySlice(t *testing.T) {
+	paths := testPaths(t)
+	if err := os.MkdirAll(paths.ConfigDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.ConfigFile, []byte("projects: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(paths, logging.New(paths.LogFile))
+	if err := service.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	saved, err := service.SaveProject(models.Project{Name: "Empty Project"})
+	if err != nil {
+		t.Fatalf("SaveProject() error = %v", err)
+	}
+	if saved.Components == nil {
+		t.Fatal("SaveProject() returned nil Components; frontend JSON must receive an empty array")
+	}
+}
+
 func TestLoadRecoversValidBackup(t *testing.T) {
 	paths := testPaths(t)
 	if err := os.MkdirAll(paths.ConfigDir, 0o755); err != nil {

@@ -555,7 +555,11 @@ func cloneProjects(projects []models.Project) []models.Project {
 }
 
 func cloneProject(project models.Project) models.Project {
-	project.Components = append([]models.Component(nil), project.Components...)
+	// Components is a required JSON array. Preserve an empty slice as [] so
+	// Wails does not serialize a newly-created project as components: null.
+	components := make([]models.Component, len(project.Components))
+	copy(components, project.Components)
+	project.Components = components
 	project.Environments = cloneEnvironments(project.Environments)
 	for i := range project.Components {
 		project.Components[i].BuildCommands = cloneStringMap(project.Components[i].BuildCommands)
