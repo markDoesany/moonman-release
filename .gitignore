@@ -7,3 +7,6 @@ frontend/dist/*
 !frontend/dist/.gitkeep
 bin/
 build/bin/
+build/dist/
+build/windows/installer/wails_tools.nsh
+build/windows/installer/tmp/

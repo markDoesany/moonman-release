@@ -1,12 +1,12 @@
-# Release Launcher
+# Moonman Release
 
-Release Launcher is a Windows desktop foundation for streamlining the developer release workflow:
+Moonman Release is a Windows desktop workspace for streamlining the developer release workflow:
 
 ```text
 Build → Validate → Package → Send via Dali → Log Release
 ```
 
-Phase 4 adds local Dali CLI transfer after the Phase 3 packaging engine. Release Launcher invokes the installed Dali executable directly; Dali remains responsible for local-network peer discovery and file transfer.
+Phase 4 adds local Dali CLI transfer after the Phase 3 packaging engine. Moonman Release invokes the installed Dali executable directly; Dali remains responsible for local-network peer discovery and file transfer.
 
 ## Technology
 
@@ -16,13 +16,39 @@ Phase 4 adds local Dali CLI transfer after the Phase 3 packaging engine. Release
 - YAML configuration using `gopkg.in/yaml.v3`
 - Windows x64 primary target
 
+## Windows distribution
+
+Build a portable executable and ZIP with:
+
+```powershell
+.\scripts\build-windows.ps1 -PortableOnly
+```
+
+Build the per-user NSIS installer and portable ZIP with:
+
+```powershell
+.\scripts\build-windows.ps1
+```
+
+The installer build requires NSIS (`makensis.exe`) on `PATH`. Use `-PortableOnly` when NSIS is not installed.
+
+The installer adds `moonman-release` to the current user's `PATH`, creates Moonman Release shortcuts, and stores writable application data in `%APPDATA%\MoonmanRelease`. Existing user data is kept when the application is uninstalled. The portable ZIP stores its data beside `moonman-release.exe`.
+
+The installed GUI can be opened from Command Prompt or PowerShell with:
+
+```powershell
+moonman-release open
+```
+
+Running `moonman-release` without a command opens the same GUI. `moonman-release --help` displays the command usage.
+
 ## Requirements
 
 - Windows 10 or Windows 11
 - Go 1.26 or newer
 - Node.js and npm
 - Wails CLI v2.12.0
-- WebView2 runtime for the built application
+- WebView2 runtime for the built application; if it is missing, Moonman Release opens Microsoft's download guidance
 
 Install the Wails CLI if needed:
 
@@ -50,20 +76,20 @@ npm run build
 ## Build the Windows executable
 
 ```powershell
-wails build -platform windows/amd64 -o release-launcher.exe
+wails build -platform windows/amd64 -o moonman-release.exe
 ```
 
-The executable is written to `build/bin/` by Wails unless an alternate output is specified.
+The executable is written to `build/bin/` by Wails unless an alternate output is specified. Installed users can launch the GUI with `moonman-release open`.
 
 ## Configuration
 
-The editable configuration is stored at:
+For development and portable builds, the editable configuration is stored at:
 
 ```text
 configs/projects.yaml
 ```
 
-The application creates the LokalStore sample configuration if the file is missing. A previous validated version is retained at `configs/projects.yaml.bak` after saves. Application events are appended to `logs/app.log`; build, packaging, and Dali transfer attempts are appended as JSONL records to `logs/builds.jsonl`, `logs/packaging.jsonl`, and `logs/transfers.jsonl`.
+Installed builds store the same files under `%APPDATA%\MoonmanRelease\configs` and `%APPDATA%\MoonmanRelease\logs`. The application starts with no projects when the configuration is missing. A previous validated version is retained as `projects.yaml.bak` after saves. Application events are appended to `logs/app.log`; build, packaging, and Dali transfer attempts are appended as JSONL records to `logs/builds.jsonl`, `logs/packaging.jsonl`, and `logs/transfers.jsonl`.
 
 Set `RELEASE_LAUNCHER_DATA_DIR` to use another configuration/log directory, for example during testing:
 
@@ -90,7 +116,7 @@ projects:
 
 Project and component IDs are generated for new records and remain stable when names are edited. Component paths must exist when a build starts. Build commands run from the component path using Windows `cmd.exe /d /s /c`, so commands such as `npm run build` work with the developer's normal PATH. Existing Phase 1 flat package fields are accepted and upgraded to the nested format when saved.
 
-Packages are written to:
+Packages are written to the app data `releases` folder by default (or the portable folder's `releases` directory):
 
 ```text
 releases/<Project Name>/<Version>/<package filename>
@@ -109,7 +135,7 @@ dali:
   wait: false
 ```
 
-Configure either a peer name, a peer address such as `192.168.1.20:45679`, or automatic selection of a single discovered peer. The default executable is `dali`, which must be available in `PATH`; a full path to `dali.exe` is also supported. Release Launcher runs `dali send file=...` directly and marks a transfer successful only when Dali prints its success confirmation.
+Configure either a peer name, a peer address such as `192.168.1.20:45679`, or automatic selection of a single discovered peer. The default executable is `dali`, which must be available in `PATH`; a full path to `dali.exe` is also supported. Moonman Release runs `dali send file=...` directly and marks a transfer successful only when Dali prints its success confirmation.
 
 ## Current behavior
 
@@ -154,7 +180,7 @@ npm run build
 Build the Windows executable with:
 
 ```powershell
-wails build -platform windows/amd64 -o release-launcher.exe
+wails build -platform windows/amd64 -o moonman-release.exe
 ```
 
 The sample configuration uses placeholder paths. To exercise a real build, update a component path and command in Project Settings, then select the component and click Build Only, Build & Package, or Build, Package & Send. Package-only testing uses an existing configured output directory. To test Dali, run `dali open accept=auto` on a receiving machine, configure its peer name/address in Project Settings, then use Send Packages or Build, Package & Send.

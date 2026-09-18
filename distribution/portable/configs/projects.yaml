@@ -1,0 +1,7 @@
+projects: []
+dali:
+  executable: dali
+  peer_name: ''
+  peer_address: ''
+  auto: true
+  wait: false
