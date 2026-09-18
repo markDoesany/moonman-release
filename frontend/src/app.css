@@ -16,7 +16,7 @@ button, input, select { font: inherit; } button { cursor: pointer; } button:disa
 .release-inputs { display: flex; gap: 18px; align-items: flex-end; } .version-field { width: 180px; }
 .component-section { border-top: 1px solid #24415f; margin-top: 30px; padding-top: 28px; } .component-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .component-option { display: flex; align-items: center; gap: 10px; min-height: 54px; padding: 0 14px; color: #dbeafe; background: #10243b; border: 1px solid #294966; border-radius: 10px; } .component-option input, .checkbox-field input { accent-color: #38bdf8; width: 16px; height: 16px; }
-.action-row { justify-content: flex-start; margin-top: 34px; } .primary-button, .secondary-button, .ghost-button, .text-button, .danger-button, .icon-button, .remove-button { border-radius: 9px; padding: 11px 16px; border: 1px solid transparent; font-weight: 700; }
+.action-row { justify-content: flex-start; margin-top: 34px; flex-wrap: wrap; } .primary-button, .secondary-button, .ghost-button, .text-button, .danger-button, .icon-button, .remove-button { border-radius: 9px; padding: 11px 16px; border: 1px solid transparent; font-weight: 700; }
 .primary-button { background: #38bdf8; color: #062033; } .secondary-button { background: #17314e; color: #dbeafe; border-color: #31597b; } .ghost-button { color: #b9d3eb; background: transparent; border-color: #2b4967; }
 .text-button { padding: 0; color: #7dd3fc; background: transparent; } .danger-button, .remove-button { color: #fca5a5; background: transparent; border-color: #7f3038; } .icon-button { width: 36px; padding: 7px; font-size: 20px; line-height: 1; color: #061727; background: #7dd3fc; }
 .phase-note { color: #738ba6; font-size: 12px; margin-top: 13px; } .alert { margin: 0 0 18px; padding: 12px 14px; border-radius: 9px; font-size: 13px; } .alert.error { color: #fecaca; background: #3a1820; border: 1px solid #823542; } .alert.success { color: #bbf7d0; background: #133323; border: 1px solid #2e754b; }
@@ -26,8 +26,9 @@ button, input, select { font: inherit; } button { cursor: pointer; } button:disa
 .build-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 15px; background: #0b1e34; border: 1px solid #284864; border-radius: 10px; }
 .build-row strong, .build-row small { display: block; } .build-row small { color: #819bb6; font-size: 12px; margin-top: 4px; }
 .build-status { display: inline-flex; align-items: center; gap: 7px; min-width: 100px; justify-content: flex-end; font-size: 12px; font-weight: 700; }
-.build-status b { font-size: 16px; } .status-ready { color: #b8c9d9; } .status-building { color: #fbbf24; } .status-success { color: #86efac; } .status-failed, .status-cancelled { color: #fca5a5; } .status-skipped { color: #91a6bc; }
+.build-status b { font-size: 16px; } .status-ready { color: #b8c9d9; } .status-building, .status-sending { color: #fbbf24; } .status-success { color: #86efac; } .status-failed, .status-cancelled { color: #fca5a5; } .status-skipped { color: #91a6bc; }
 .release-row { align-items: flex-start; } .release-status { display: flex; gap: 14px; align-items: center; } .release-status .build-status { min-width: auto; justify-content: flex-start; font-style: normal; }
+.dali-settings { border-top: 1px solid #24415f; margin-top: 30px; padding-top: 28px; } .dali-settings p { margin: 6px 0 0; color: #819bb6; font-size: 12px; font-weight: 400; }
 .build-console { max-height: 330px; overflow: auto; padding: 15px; color: #c9dcf0; background: #06101d; border: 1px solid #263e58; border-radius: 10px; font: 12px/1.65 Consolas, "Cascadia Code", monospace; white-space: pre-wrap; }
 .console-line { min-height: 20px; } .console-line > span { color: #7dd3fc; } .console-line.stderr { color: #fca5a5; } .console-line.stderr > span { color: #fb7185; }
 .clear-button { margin-left: auto; }

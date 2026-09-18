@@ -64,7 +64,7 @@ export type BuildRun = {
 
 export type BuildEvent = {
   type: string;
-  phase?: 'build' | 'package' | 'release';
+  phase?: 'build' | 'package' | 'transfer' | 'release';
   runId: string;
   projectId: string;
   projectName: string;
@@ -81,6 +81,9 @@ export type BuildEvent = {
   packageStatus?: PackageStatus;
   packageResult?: PackageResult;
   packageResults?: PackageResult[];
+  transferStatus?: TransferStatus;
+  transferResult?: TransferResult;
+  transferResults?: TransferResult[];
   error?: string;
 };
 
@@ -93,6 +96,81 @@ export type BuildOutputLine = {
 export type PackageConfig = {
   enabled: boolean;
   filename: string;
+};
+
+export type DaliConfig = {
+  executable: string;
+  peerName: string;
+  peerAddress: string;
+  auto: boolean;
+  wait: boolean;
+};
+
+export type TransferStatus = 'ready' | 'sending' | 'success' | 'failed' | 'skipped' | 'cancelled';
+export type TransferRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+
+export type TransferRequest = {
+  projectId: string;
+  componentIds: string[];
+  version: string;
+};
+
+export type TransferPlanItem = {
+  componentId: string;
+  componentName: string;
+  selected: boolean;
+  enabled: boolean;
+  packagePath: string;
+  exists: boolean;
+  error?: string;
+};
+
+export type TransferPlan = {
+  projectId: string;
+  projectName: string;
+  version: string;
+  components: TransferPlanItem[];
+  hasMissing: boolean;
+};
+
+export type TransferResult = {
+  projectId: string;
+  projectName: string;
+  componentId: string;
+  componentName: string;
+  success: boolean;
+  status: TransferStatus;
+  packagePath: string;
+  executable: string;
+  arguments: string[];
+  peerName?: string;
+  peerAddress?: string;
+  exitCode: number;
+  startTime: string;
+  endTime: string;
+  durationMs: number;
+  error?: string;
+};
+
+export type TransferComponentState = {
+  componentId: string;
+  componentName: string;
+  selected: boolean;
+  status: TransferStatus;
+  message: string;
+  result?: TransferResult;
+};
+
+export type TransferRun = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  version: string;
+  status: TransferRunStatus;
+  components: TransferComponentState[];
+  startTime: string;
+  endTime?: string;
+  error?: string;
 };
 
 export type PackageStatus = 'ready' | 'packaging' | 'success' | 'failed' | 'skipped' | 'cancelled';
@@ -172,6 +250,9 @@ export type ReleaseComponentState = {
   packageStatus: PackageStatus;
   packageMessage: string;
   packageResult?: PackageResult;
+  transferStatus: TransferStatus;
+  transferMessage: string;
+  transferResult?: TransferResult;
 };
 
 export type ReleaseRun = {

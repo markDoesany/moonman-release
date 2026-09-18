@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { EventsOn } from '../wailsjs/runtime/runtime';
-  import { CancelBuild, DeleteProject, GetPackagePlan, GetProjects, SaveProject, StartBuild, StartBuildAndPackage, StartPackage } from './backend';
-  import type { BuildEvent, BuildOutputLine, BuildRun, Component, PackageRun, PackageRequest, Project, ReleaseRun, ValidationIssue } from './types';
+  import { CancelBuild, DeleteProject, GetDaliConfig, GetPackagePlan, GetProjects, GetTransferPlan, SaveDaliConfig, SaveProject, StartBuild, StartBuildAndPackage, StartBuildPackageAndSend, StartPackage, StartTransfer } from './backend';
+  import type { BuildEvent, BuildOutputLine, BuildRun, Component, DaliConfig, PackageRun, PackageRequest, Project, ReleaseRun, TransferPlan, TransferRequest, TransferRun, ValidationIssue } from './types';
 
   type View = 'launcher' | 'settings';
-  type Operation = 'build' | 'package' | 'release';
+  type Operation = 'build' | 'package' | 'transfer' | 'release' | 'release-transfer';
 
   let projects: Project[] = [];
   let selectedProjectId = '';
@@ -16,11 +16,14 @@
   let settingsIsNew = false;
   let loading = true;
   let saving = false;
+  let daliSaving = false;
   let operationStarting = false;
   let operation: Operation | null = null;
   let buildRun: BuildRun | null = null;
   let packageRun: PackageRun | null = null;
+  let transferRun: TransferRun | null = null;
   let releaseRun: ReleaseRun | null = null;
+  let daliConfig: DaliConfig = { executable: 'dali', peerName: '', peerAddress: '', auto: true, wait: false };
   let packageVersion = '1.0.0';
   let buildOutput: BuildOutputLine[] = [];
   let pendingBuildEvents: BuildEvent[] = [];
@@ -29,7 +32,7 @@
   let issues: ValidationIssue[] = [];
 
   $: selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
-  $: operationActive = operationStarting || buildRun?.status === 'running' || packageRun?.status === 'running' || releaseRun?.status === 'running';
+  $: operationActive = operationStarting || buildRun?.status === 'running' || packageRun?.status === 'running' || transferRun?.status === 'running' || releaseRun?.status === 'running';
 
   onMount(() => {
     const stopListening = EventsOn('release-launcher:build-event', (event: BuildEvent) => handleBuildEvent(event));
@@ -41,7 +44,9 @@
     loading = true;
     errorMessage = '';
     try {
-      projects = await GetProjects();
+      const [loadedProjects, loadedDaliConfig] = await Promise.all([GetProjects(), GetDaliConfig()]);
+      projects = loadedProjects;
+      daliConfig = loadedDaliConfig;
       selectedProjectId = projects[0]?.id ?? '';
       selectedComponentIds = projects[0]?.components.map((component) => component.id) ?? [];
     } catch (error) {
@@ -73,6 +78,7 @@
     operationStarting = true;
     buildRun = null;
     packageRun = null;
+    transferRun = null;
     releaseRun = null;
   }
 
@@ -122,6 +128,27 @@
     }
   }
 
+  async function startTransferExisting() {
+    if (!selectedProject || operationActive) return;
+    if (selectedComponentIds.length === 0) {
+      errorMessage = 'Select at least one component to send.';
+      return;
+    }
+    prepareOperation('transfer');
+    try {
+      const request: TransferRequest = { projectId: selectedProject.id, componentIds: selectedComponentIds, version: packageVersion };
+      const plan: TransferPlan = await GetTransferPlan(request);
+      if (plan.hasMissing) {
+        throw new Error('One or more selected packages do not exist. Package them before sending.');
+      }
+      transferRun = await StartTransfer(request);
+      finishStarting(pendingBuildEvents);
+    } catch (error) {
+      operationStarting = false;
+      errorMessage = readableError(error);
+    }
+  }
+
   async function startBuildAndPackage() {
     if (!selectedProject || operationActive) return;
     if (selectedComponentIds.length === 0) {
@@ -146,13 +173,37 @@
     }
   }
 
+  async function startBuildPackageAndSend() {
+    if (!selectedProject || operationActive) return;
+    if (selectedComponentIds.length === 0) {
+      errorMessage = 'Select at least one component to build, package, and send.';
+      return;
+    }
+    prepareOperation('release-transfer');
+    try {
+      const initialRequest: PackageRequest = { projectId: selectedProject.id, componentIds: selectedComponentIds, version: packageVersion, overwrite: false };
+      const plan = await GetPackagePlan(initialRequest);
+      const overwrite = await confirmOverwrite(plan.hasConflicts, plan.releaseDirectory);
+      if (overwrite === null) {
+        operationStarting = false;
+        operation = null;
+        return;
+      }
+      releaseRun = await StartBuildPackageAndSend({ ...initialRequest, overwrite });
+      finishStarting(pendingBuildEvents);
+    } catch (error) {
+      operationStarting = false;
+      errorMessage = readableError(error);
+    }
+  }
+
   async function confirmOverwrite(hasConflicts: boolean, releaseDirectory: string): Promise<boolean | null> {
     if (!hasConflicts) return false;
     return window.confirm(`One or more packages already exist in ${releaseDirectory}. Replace them?`) ? true : null;
   }
 
   async function cancelOperation() {
-    const runID = buildRun?.id ?? packageRun?.id ?? releaseRun?.id;
+    const runID = buildRun?.id ?? packageRun?.id ?? transferRun?.id ?? releaseRun?.id;
     if (!runID) return;
     try {
       await CancelBuild(runID);
@@ -176,6 +227,8 @@
   function applyBuildEvent(event: BuildEvent) {
     if (event.phase === 'package') {
       applyPackageEvent(event);
+    } else if (event.phase === 'transfer') {
+      applyTransferEvent(event);
     } else if (event.phase === 'release') {
       applyReleaseEvent(event);
     } else {
@@ -217,6 +270,20 @@
     }
   }
 
+  function applyTransferEvent(event: BuildEvent) {
+    if (!transferRun || transferRun.id !== event.runId) return;
+    appendOutput(event);
+    if (event.componentId && event.transferStatus) {
+      transferRun = { ...transferRun, components: transferRun.components.map((component) => component.componentId === event.componentId
+        ? { ...component, status: event.transferStatus ?? component.status, message: event.error || statusLabel(event.transferStatus ?? component.status), result: event.transferResult ?? component.result }
+        : component) };
+    }
+    if (event.type === 'transfer_run_finished' && event.runStatus) {
+      transferRun = { ...transferRun, status: event.runStatus as TransferRun['status'], endTime: event.timestamp, error: event.error };
+      showRunMessage(event.runStatus, event.error, 'transfer');
+    }
+  }
+
   function applyReleaseEvent(event: BuildEvent) {
     if (!releaseRun || releaseRun.id !== event.runId) return;
     appendOutput(event);
@@ -231,18 +298,23 @@
             packageStatus: event.packageStatus ?? component.packageStatus,
             packageMessage: messages[1] || component.packageMessage,
             packageResult: event.packageResult ?? component.packageResult,
+            transferStatus: event.transferStatus ?? component.transferStatus,
+            transferMessage: messages[2] || component.transferMessage,
+            transferResult: event.transferResult ?? component.transferResult,
           }
         : component) };
     }
     if (event.type === 'release_run_finished' && event.runStatus) {
       releaseRun = { ...releaseRun, status: event.runStatus as ReleaseRun['status'], endTime: event.timestamp, error: event.error };
-      showRunMessage(event.runStatus, event.error);
+      showRunMessage(event.runStatus, event.error, operation === 'release-transfer' ? 'release-transfer' : 'release');
     }
   }
 
-  function showRunMessage(status: string, error?: string) {
-    if (status === 'completed') successMessage = 'Build and packaging completed successfully.';
-    if (status === 'failed') errorMessage = error || 'Build or packaging failed.';
+  function showRunMessage(status: string, error?: string, kind: Operation | 'transfer' | 'release' = operation ?? 'build') {
+    if (status === 'completed') {
+      successMessage = kind === 'transfer' ? 'Dali transfer completed successfully.' : kind === 'release-transfer' ? 'Build, packaging, and Dali transfer completed successfully.' : kind === 'release' ? 'Build and packaging completed successfully.' : kind === 'package' ? 'Packaging completed successfully.' : 'Build completed successfully.';
+    }
+    if (status === 'failed') errorMessage = error || (kind === 'transfer' ? 'Dali transfer failed.' : kind === 'release-transfer' ? 'Build, packaging, or Dali transfer failed.' : kind === 'release' ? 'Build or packaging failed.' : kind === 'package' ? 'Packaging failed.' : 'Build failed.');
     if (status === 'cancelled') errorMessage = error || 'Operation cancelled.';
   }
 
@@ -291,6 +363,21 @@
       issues = [{ field: 'project', message: errorMessage }];
     } finally {
       saving = false;
+    }
+  }
+
+  async function saveDaliSettings() {
+    if (operationActive) return;
+    daliSaving = true;
+    errorMessage = '';
+    successMessage = '';
+    try {
+      daliConfig = await SaveDaliConfig(daliConfig);
+      successMessage = 'Dali settings saved.';
+    } catch (error) {
+      errorMessage = readableError(error);
+    } finally {
+      daliSaving = false;
     }
   }
 
@@ -359,7 +446,7 @@
   {:else if view === 'launcher'}
     <main class="card launcher-view">
       <div class="section-heading">
-        <div><p class="eyebrow">Phase 3 packaging engine</p><h2>Prepare a release</h2></div>
+        <div><p class="eyebrow">Build, package, and send</p><h2>Prepare a release</h2></div>
         <span class:active={operationActive} class="status-pill">{operationActive ? 'Operation in progress' : 'Ready'}</span>
       </div>
 
@@ -388,10 +475,12 @@
         <button class="primary-button" disabled={operationActive || !selectedProject || selectedComponentIds.length === 0} on:click={startBuild}>Build Only</button>
         <button class="secondary-button" disabled={operationActive || !selectedProject || selectedComponentIds.length === 0} on:click={startBuildAndPackage}>Build &amp; Package</button>
         <button class="secondary-button" disabled={operationActive || !selectedProject || selectedComponentIds.length === 0} on:click={startPackageExisting}>Package Existing Build</button>
-        {#if operationActive && (buildRun || packageRun || releaseRun)}<button class="danger-button" on:click={cancelOperation}>Cancel</button>{/if}
+        <button class="secondary-button" disabled={operationActive || !selectedProject || selectedComponentIds.length === 0} on:click={startTransferExisting}>Send Packages</button>
+        <button class="primary-button" disabled={operationActive || !selectedProject || selectedComponentIds.length === 0} on:click={startBuildPackageAndSend}>Build, Package &amp; Send</button>
+        {#if operationActive && (buildRun || packageRun || transferRun || releaseRun)}<button class="danger-button" on:click={cancelOperation}>Cancel</button>{/if}
         <button class="text-button clear-button" disabled={operationActive || buildOutput.length === 0} on:click={clearOutput}>Clear Output</button>
       </div>
-      <p class="phase-note">Packages are written to releases/{selectedProject?.name ?? 'Project'}/{packageVersion || 'timestamp'}.</p>
+      <p class="phase-note">Packages are written to releases/{selectedProject?.name ?? 'Project'}/{packageVersion || 'timestamp'} and sent through Dali to {daliConfig.peerName || daliConfig.peerAddress || 'an automatically selected peer'}.</p>
 
       {#if buildRun}
         <section class="build-panel"><div class="section-heading compact"><div><p class="eyebrow">Build Progress</p><h3>{buildRun.projectName}</h3></div><span class="run-status">{statusLabel(buildRun.status)}</span></div>
@@ -401,9 +490,13 @@
         <section class="build-panel"><div class="section-heading compact"><div><p class="eyebrow">Packaging Progress</p><h3>{packageRun.projectName} / {packageRun.version}</h3></div><span class="run-status">{statusLabel(packageRun.status)}</span></div>
           <div class="build-progress">{#each packageRun.components as state}<div class="build-row"><div><strong>{state.componentName}</strong><small>{state.message}{state.result?.packagePath ? ` — ${state.result.packagePath}` : ''}</small></div><span class={`build-status status-${state.status}`}><b>{statusIcon(state.status)}</b>{statusLabel(state.status)}</span></div>{/each}</div>
         </section>
+      {:else if transferRun}
+        <section class="build-panel"><div class="section-heading compact"><div><p class="eyebrow">Dali Transfer Progress</p><h3>{transferRun.projectName} / {transferRun.version}</h3></div><span class="run-status">{statusLabel(transferRun.status)}</span></div>
+          <div class="build-progress">{#each transferRun.components as state}<div class="build-row"><div><strong>{state.componentName}</strong><small>{state.message}{state.result?.packagePath ? ` — ${state.result.packagePath}` : ''}</small></div><span class={`build-status status-${state.status}`}><b>{statusIcon(state.status)}</b>{statusLabel(state.status)}</span></div>{/each}</div>
+        </section>
       {:else if releaseRun}
         <section class="build-panel"><div class="section-heading compact"><div><p class="eyebrow">Build &amp; Packaging Progress</p><h3>{releaseRun.projectName} / {releaseRun.version}</h3></div><span class="run-status">{statusLabel(releaseRun.status)}</span></div>
-          <div class="build-progress">{#each releaseRun.components as state}<div class="build-row release-row"><div><strong>{state.componentName}</strong><small>Build: {state.buildMessage} · Package: {state.packageMessage}</small></div><span class="release-status"><i class={`build-status status-${state.buildStatus}`}>{statusIcon(state.buildStatus)} {statusLabel(state.buildStatus)}</i><i class={`build-status status-${state.packageStatus}`}>{statusIcon(state.packageStatus)} {statusLabel(state.packageStatus)}</i></span></div>{/each}</div>
+          <div class="build-progress">{#each releaseRun.components as state}<div class="build-row release-row"><div><strong>{state.componentName}</strong><small>Build: {state.buildMessage} · Package: {state.packageMessage} · Send: {state.transferMessage}</small></div><span class="release-status"><i class={`build-status status-${state.buildStatus}`}>{statusIcon(state.buildStatus)} {statusLabel(state.buildStatus)}</i><i class={`build-status status-${state.packageStatus}`}>{statusIcon(state.packageStatus)} {statusLabel(state.packageStatus)}</i><i class={`build-status status-${state.transferStatus}`}>{statusIcon(state.transferStatus)} {statusLabel(state.transferStatus)}</i></span></div>{/each}</div>
         </section>
       {/if}
 
@@ -425,7 +518,18 @@
           <label class="field"><span>Package Filename</span><input disabled={operationActive} value={component.package.filename} on:input={(event) => updateComponent(index, { package: { ...component.package, filename: inputValue(event) } })} placeholder="component.zip" /></label>
         </div></article>{:else}<div class="empty-state">No components. Add the first component above.</div>{/each}
         <div class="action-row settings-actions"><button class="secondary-button" disabled={operationActive} on:click={closeSettings}>Cancel</button><button class="primary-button" disabled={saving || operationActive} on:click={saveSettings}>{saving ? 'Saving...' : 'Save Project'}</button></div>
-      {:else}<div class="empty-state large">Select a project or add a new one.</div>{/if}</section>
+      {:else}<div class="empty-state large">Select a project or add a new one.</div>{/if}
+        <section class="dali-settings"><div class="section-heading compact"><div><p class="eyebrow">Dali transfer</p><h3>DevOps destination</h3><p>Configure the installed Dali CLI and the peer that receives release ZIP files.</p></div></div>
+          <div class="form-grid">
+            <label class="field"><span>Dali Executable</span><input disabled={operationActive} value={daliConfig.executable} on:input={(event) => (daliConfig = { ...daliConfig, executable: inputValue(event) })} placeholder="dali" /></label>
+            <label class="field"><span>Peer Name</span><input disabled={operationActive} value={daliConfig.peerName} on:input={(event) => (daliConfig = { ...daliConfig, peerName: inputValue(event), peerAddress: '' })} placeholder="DevOps" /></label>
+            <label class="field"><span>Peer Address</span><input disabled={operationActive} value={daliConfig.peerAddress} on:input={(event) => (daliConfig = { ...daliConfig, peerAddress: inputValue(event), peerName: '' })} placeholder="192.168.1.20:45679" /></label>
+            <label class="field checkbox-field"><input type="checkbox" disabled={operationActive} checked={daliConfig.auto} on:change={(event) => (daliConfig = { ...daliConfig, auto: checkedValue(event) })} /><span>Auto-select a single peer</span></label>
+            <label class="field checkbox-field"><input type="checkbox" disabled={operationActive} checked={daliConfig.wait} on:change={(event) => (daliConfig = { ...daliConfig, wait: checkedValue(event) })} /><span>Wait for discovery timeout</span></label>
+          </div>
+          <div class="action-row settings-actions"><button class="primary-button" disabled={daliSaving || operationActive} on:click={saveDaliSettings}>{daliSaving ? 'Saving...' : 'Save Dali Settings'}</button></div>
+        </section>
+      </section>
     </main>
   {/if}
 </div>
