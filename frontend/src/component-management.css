@@ -83,7 +83,9 @@
 
 .component-row-id {
   color: #66839d;
-  font: 10px Consolas, monospace;
+  font:
+    10px Consolas,
+    monospace;
 }
 
 .component-row-actions {

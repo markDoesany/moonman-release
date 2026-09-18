@@ -1,141 +1,2060 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { EventsOn } from '../wailsjs/runtime/runtime';
-  import { ArrowLeft, ArrowRight, Ban, Check, CheckCircle2, Circle, CircleX, Copy, FolderKanban, FolderOpen, History, LoaderCircle, MinusCircle, Play, Plus, RefreshCw, Rocket, RotateCcw, Save, Search, Settings, Trash2, X } from 'lucide-svelte';
+  import {
+    ArrowLeft,
+    ArrowRight,
+    Ban,
+    Check,
+    CheckCircle2,
+    Circle,
+    CircleX,
+    Copy,
+    FolderKanban,
+    FolderOpen,
+    History,
+    LoaderCircle,
+    MinusCircle,
+    Play,
+    Plus,
+    RefreshCw,
+    Rocket,
+    RotateCcw,
+    Save,
+    Search,
+    Settings,
+    Trash2,
+    X,
+  } from 'lucide-svelte';
   import logo from './assets/release-launcher-logo.png';
-  import { CancelBuild, CheckDaliAvailability, DeleteProject, GetDaliConfig, GetPackagePlan, GetProjects, GetRecentRunsPage, GetTransferPlan, ListZipFiles, OpenExternalURL, OpenReleaseFolder, PickDirectory, PickFile, PickFiles, RetryRun, SaveDaliConfig, SaveProject, StartBuild, StartBuildAndPackage, StartBuildPackageAndSend, StartPackage, StartTransfer } from './backend';
-  import type { ActivityPage, ActivityQuery, BuildEvent, BuildOutputLine, BuildRun, Component, DaliAvailability, DaliConfig, EnvironmentProfile, PackagePlan, PackageRequest, PackageRun, Project, ReleaseRun, RetryRequest, RetryStage, RunSummary, TransferRequest, TransferRun, ValidationIssue } from './types';
+  import ProjectComponents from './components/ProjectComponents.svelte';
+  import {
+    createEmptyComponent,
+    defaultEnvironments,
+    legacyEnvironments,
+    normalizeProject,
+    uniqueEnvironmentId,
+  } from './lib/project-utils';
+  import {
+    CancelBuild,
+    CheckDaliAvailability,
+    DeleteProject,
+    GetDaliConfig,
+    GetPackagePlan,
+    GetProjects,
+    GetRecentRunsPage,
+    GetTransferPlan,
+    ListZipFiles,
+    OpenExternalURL,
+    OpenReleaseFolder,
+    PickDirectory,
+    PickFile,
+    PickFiles,
+    RetryRun,
+    SaveDaliConfig,
+    SaveProject,
+    StartBuild,
+    StartBuildAndPackage,
+    StartBuildPackageAndSend,
+    StartPackage,
+    StartTransfer,
+  } from './backend';
+  import type {
+    ActivityPage,
+    ActivityQuery,
+    BuildEvent,
+    BuildOutputLine,
+    BuildRun,
+    Component,
+    DaliAvailability,
+    DaliConfig,
+    EnvironmentProfile,
+    PackagePlan,
+    PackageRequest,
+    PackageRun,
+    Project,
+    ReleaseRun,
+    RetryRequest,
+    RetryStage,
+    RunSummary,
+    TransferRequest,
+    TransferRun,
+    ValidationIssue,
+  } from './types';
 
   type View = 'release' | 'projects' | 'activity' | 'settings';
   type Operation = 'build' | 'package' | 'transfer' | 'release' | 'release-transfer';
-  let view: View = 'release'; let step = 1; let loading = true; let saving = false; let daliSaving = false;
-  let projects: Project[] = []; let selectedProjectId = ''; let selectedComponentIds: string[] = []; let selectedProject: Project | null = null;
-  let releaseEnvironment = ''; let packageVersion = '1.0.0'; let operation: Operation = 'release'; let packageTemplate = ''; let releaseDirectory = ''; let overwrite = false; let componentFilter = '';
-  let namingPlan: PackagePlan | null = null; let namingNames: Record<string, string> = {}; let buildReview = false;
-  let buildRun: BuildRun | null = null; let packageRun: PackageRun | null = null; let transferRun: TransferRun | null = null; let releaseRun: ReleaseRun | null = null;
-  let buildOutput: BuildOutputLine[] = []; let pendingBuildEvents: BuildEvent[] = []; let operationStarting = false; let activity: RunSummary[] = [];
-  let activityStatus = 'all'; let activityProject = ''; let activityEnvironment = 'all'; let activitySearch = ''; let activityPage = 1; let activityPageSize = 10; let activityTotal = 0; let activityTotalPages = 0; let settingsProject: Project | null = null; let settingsIsNew = false;
-  let settingsTab: 'general' | 'components' | 'environments' = 'general'; let selectedEnvironmentId = ''; let issues: ValidationIssue[] = []; let errorMessage = ''; let successMessage = ''; let namingError = ''; let deleteCandidate: Project | null = null;
-  let daliConfig: DaliConfig = { executable: 'dali', peerName: '', peerAddress: '', auto: true, wait: false }; let daliAvailability: DaliAvailability | null = null; let daliChecking = false; let newComponentSequence = 0; let editingComponentIndex: number | null = null;
-  let directPackagePaths: string[] = []; let directFolder = ''; let folderZipFiles: string[] = [];
+  let view: View = 'release';
+  let step = 1;
+  let loading = true;
+  let saving = false;
+  let daliSaving = false;
+  let projects: Project[] = [];
+  let selectedProjectId = '';
+  let selectedComponentIds: string[] = [];
+  let selectedProject: Project | null = null;
+  let releaseEnvironment = '';
+  let packageVersion = '1.0.0';
+  let operation: Operation = 'release';
+  let packageTemplate = '';
+  let releaseDirectory = '';
+  let overwrite = false;
+  let componentFilter = '';
+  let namingPlan: PackagePlan | null = null;
+  let namingNames: Record<string, string> = {};
+  let buildReview = false;
+  let buildRun: BuildRun | null = null;
+  let packageRun: PackageRun | null = null;
+  let transferRun: TransferRun | null = null;
+  let releaseRun: ReleaseRun | null = null;
+  let buildOutput: BuildOutputLine[] = [];
+  let pendingBuildEvents: BuildEvent[] = [];
+  let operationStarting = false;
+  let activity: RunSummary[] = [];
+  let activityStatus = 'all';
+  let activityProject = '';
+  let activityEnvironment = 'all';
+  let activitySearch = '';
+  let activityPage = 1;
+  let activityPageSize = 10;
+  let activityTotal = 0;
+  let activityTotalPages = 0;
+  let settingsProject: Project | null = null;
+  let settingsIsNew = false;
+  let settingsTab: 'general' | 'components' | 'environments' = 'general';
+  let selectedEnvironmentId = '';
+  let issues: ValidationIssue[] = [];
+  let errorMessage = '';
+  let successMessage = '';
+  let namingError = '';
+  let deleteCandidate: Project | null = null;
+  let daliConfig: DaliConfig = {
+    executable: 'dali',
+    peerName: '',
+    peerAddress: '',
+    auto: true,
+    wait: false,
+  };
+  let daliAvailability: DaliAvailability | null = null;
+  let daliChecking = false;
+  let newComponentSequence = 0;
+  let editingComponentIndex: number | null = null;
+  let directPackagePaths: string[] = [];
+  let directFolder = '';
+  let folderZipFiles: string[] = [];
   let environmentDeleteCandidate: EnvironmentProfile | null = null;
   let environmentSelectionByProject: Record<string, string> = {};
-  let retryStarting = false; let retryDialog: { stage: RetryStage; runId: string; componentIds: string[] } | null = null;
+  let retryStarting = false;
+  let retryDialog: { stage: RetryStage; runId: string; componentIds: string[] } | null = null;
   let notificationTimer: ReturnType<typeof setTimeout> | null = null;
 
   $: selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
-  $: environments = selectedProject?.environments?.length ? selectedProject.environments : legacyEnvironments(selectedProject);
-  $: activeEnvironment = environments.find((environment) => environment.id === releaseEnvironment) ?? environments[0];
-  $: selectedEnvironmentProfile = settingsProject?.environments?.find((environment) => environment.id === selectedEnvironmentId) ?? settingsProject?.environments?.[0] ?? null;
+  $: environments = selectedProject?.environments?.length
+    ? selectedProject.environments
+    : legacyEnvironments(selectedProject);
+  $: activeEnvironment =
+    environments.find((environment) => environment.id === releaseEnvironment) ?? environments[0];
+  $: selectedEnvironmentProfile =
+    settingsProject?.environments?.find(
+      (environment) => environment.id === selectedEnvironmentId,
+    ) ??
+    settingsProject?.environments?.[0] ??
+    null;
   $: if (successMessage || errorMessage) scheduleNotificationDismissal();
-  $: operationActive = operationStarting || currentRun?.status === 'running' || namingPlan !== null || buildReview;
+  $: operationActive =
+    operationStarting || currentRun?.status === 'running' || namingPlan !== null || buildReview;
   $: currentRun = buildRun ?? packageRun ?? transferRun ?? releaseRun;
   $: filteredActivity = activity;
 
-  onMount(() => { const stopListening = EventsOn('release-launcher:build-event', (event: BuildEvent) => handleBuildEvent(event)); void loadProjects(); return stopListening; });
-  async function loadProjects() { loading = true; try { const [loadedProjects, loadedDali] = await Promise.all([GetProjects(), GetDaliConfig()]); projects = loadedProjects.map(normalizeProject); daliConfig = loadedDali; selectedProjectId = projects[0]?.id ?? ''; selectedComponentIds = (projects[0]?.components ?? []).map((component) => component.id); releaseEnvironment = projects[0]?.defaultEnvironment ?? projects[0]?.environments?.[0]?.id ?? 'dev'; await Promise.all([loadActivity(), checkDali()]); } catch (error) { errorMessage = readableError(error); } finally { loading = false; } }
-  async function loadActivity() { try { const page: ActivityPage = await GetRecentRunsPage({ projectId: activityProject, environment: activityEnvironment, status: activityStatus, search: activitySearch, page: activityPage, pageSize: activityPageSize }); activity = page.runs; activityTotal = page.total; activityTotalPages = page.totalPages; } catch (error) { errorMessage = readableError(error); } }
-  async function refreshActivity() { activityPage = 1; await loadActivity(); }
-  async function checkDali() { daliChecking = true; try { daliAvailability = await CheckDaliAvailability(); } catch (error) { errorMessage = readableError(error); } finally { daliChecking = false; } }
-  function selectProject(id: string) { if (operationActive) return; selectedProjectId = id; const project = projects.find((item) => item.id === id); selectedComponentIds = (project?.components ?? []).map((component) => component.id); releaseEnvironment = project?.defaultEnvironment ?? project?.environments?.[0]?.id ?? 'dev'; }
-  function selectEnvironment(id: string) { if (!operationActive) releaseEnvironment = id; }
-  function setOperation(event: Event) { operation = selectValue(event) as Operation; if (operation !== 'transfer') { directPackagePaths = []; folderZipFiles = []; } }
-  function toggleComponent(component: Component) { if (!operationActive) selectedComponentIds = selectedComponentIds.includes(component.id) ? selectedComponentIds.filter((id) => id !== component.id) : [...selectedComponentIds, component.id]; }
-  function selectAllComponents() { if (selectedProject) selectedComponentIds = (selectedProject.components ?? []).map((component) => component.id); }
-  function selectNoComponents() { selectedComponentIds = []; }
-  function resetRunState() { buildRun = null; packageRun = null; transferRun = null; releaseRun = null; buildOutput = []; pendingBuildEvents = []; errorMessage = ''; successMessage = ''; namingError = ''; overwrite = false; namingPlan = null; buildReview = false; }
-  function continueToReview() { if (!selectedProject) { errorMessage = 'Create or select a project first.'; return; } if (operation === 'transfer' && directPackagePaths.length === 0) { errorMessage = 'Select at least one ZIP package before continuing.'; return; } if (operation !== 'transfer' && selectedComponentIds.length === 0) { errorMessage = 'Select at least one component.'; return; } resetRunState(); if (operation === 'build') { buildReview = true; step = 2; return; } void prepareNaming(); }
-  async function prepareNaming() { if (!selectedProject) return; operationStarting = true; try { if (operation === 'transfer') { const transferPlan = await GetTransferPlan(packageRequest() as TransferRequest); if (transferPlan.hasMissing) throw new Error('One or more selected ZIP packages are unavailable.'); namingPlan = transferPlan as unknown as PackagePlan; namingNames = {}; } else { namingPlan = await GetPackagePlan({ ...packageRequest(), packageNames: {} }); const approved = namingNames; namingNames = Object.fromEntries(namingPlan.components.filter((item) => item.selected && item.enabled).map((item) => [item.componentId, approved[item.componentId] ?? item.resolvedFilename ?? ''])); } step = 2; } catch (error) { errorMessage = readableError(error); } finally { operationStarting = false; } }
-  function packageRequest(): PackageRequest { return { projectId: selectedProject?.id ?? '', componentIds: selectedComponentIds, version: packageVersion.trim(), overwrite, filenameTemplate: packageTemplate.trim(), packageNames: { ...namingNames }, environment: releaseEnvironment, releaseDirectory: releaseDirectory.trim(), ...(operation === 'transfer' ? { packagePaths: directPackagePaths } : {}) }; }
-  async function editPackageName(componentId: string, value: string) { namingNames = { ...namingNames, [componentId]: value }; if (!namingPlan) return; try { namingPlan = await GetPackagePlan({ ...packageRequest(), packageNames: { ...namingNames } }); } catch (error) { namingError = readableError(error); } }
-  async function confirmReview() { if (!selectedProject) return; if (operation === 'build') { await startBuild(); return; } if (!namingPlan) return; try { namingError = ''; const request = packageRequest(); if (operation === 'transfer') { const transferPlan = await GetTransferPlan(request as TransferRequest); if (transferPlan.hasMissing) throw new Error('One or more selected ZIP packages are unavailable.'); namingPlan = transferPlan as unknown as PackagePlan; } else { namingPlan = await GetPackagePlan(request); if (namingPlan.hasConflicts && !overwrite) { namingError = 'Existing files need an explicit overwrite decision before this release can run.'; return; } } await startApproved(request); } catch (error) { namingError = readableError(error); } }
-  async function startBuild() { if (!selectedProject) return; operationStarting = true; step = 3; try { buildRun = await StartBuild({ projectId: selectedProject.id, componentIds: selectedComponentIds, environment: releaseEnvironment }); finishStarting(pendingBuildEvents); } catch (error) { operationStarting = false; step = 2; errorMessage = readableError(error); } }
-  async function startApproved(request: PackageRequest) { operationStarting = true; step = 3; namingPlan = null; buildReview = false; try { if (operation === 'package') packageRun = await StartPackage(request); else if (operation === 'release') releaseRun = await StartBuildAndPackage(request); else if (operation === 'release-transfer') releaseRun = await StartBuildPackageAndSend(request); else if (operation === 'transfer') transferRun = await StartTransfer(request as TransferRequest); finishStarting(pendingBuildEvents); } catch (error) { operationStarting = false; step = 2; errorMessage = readableError(error); } }
-  function finishStarting(events: BuildEvent[]) { operationStarting = false; pendingBuildEvents = []; events.forEach(applyBuildEvent); }
-  function cancelFlow() { if (step === 2) { namingPlan = null; buildReview = false; step = 1; return; } void cancelOperation(); }
-  async function cancelOperation() { const id = buildRun?.id ?? packageRun?.id ?? transferRun?.id ?? releaseRun?.id; if (!id) return; try { await CancelBuild(id); } catch (error) { errorMessage = readableError(error); } }
-  function handleBuildEvent(event: BuildEvent) { if (operationStarting && !buildRun && !packageRun && !releaseRun && !transferRun) { pendingBuildEvents = [...pendingBuildEvents, event]; return; } applyBuildEvent(event); }
-  function applyBuildEvent(event: BuildEvent) { if (event.phase === 'package') applyPackageEvent(event); else if (event.phase === 'transfer') applyTransferEvent(event); else if (event.phase === 'release') applyReleaseEvent(event); else applyBuildOnlyEvent(event); }
-  function appendOutput(event: BuildEvent) { if (event.type === 'output' && event.text !== undefined) buildOutput = [...buildOutput, { componentName: event.componentName ?? 'Run', stream: event.stream ?? 'system', text: event.text }]; }
-  function applyBuildOnlyEvent(event: BuildEvent) { if (!buildRun || buildRun.id !== event.runId) return; appendOutput(event); if (event.componentId && event.status) buildRun = { ...buildRun, components: buildRun.components.map((item) => item.componentId === event.componentId ? { ...item, status: event.status!, message: event.error || statusLabel(event.status!), result: event.result ?? item.result } : item) }; if (event.type === 'run_finished' && event.runStatus) { buildRun = { ...buildRun, status: event.runStatus, endTime: event.timestamp, error: event.error }; finishMessage(event.runStatus, event.error); } }
-  function applyPackageEvent(event: BuildEvent) { if (!packageRun || packageRun.id !== event.runId) return; appendOutput(event); if (event.componentId && event.packageStatus) packageRun = { ...packageRun, components: packageRun.components.map((item) => item.componentId === event.componentId ? { ...item, status: event.packageStatus!, message: event.error || statusLabel(event.packageStatus!), result: event.packageResult ?? item.result } : item) }; if (event.type === 'package_run_finished' && event.runStatus) { packageRun = { ...packageRun, status: event.runStatus as PackageRun['status'], endTime: event.timestamp, error: event.error }; finishMessage(event.runStatus, event.error); } }
-  function applyTransferEvent(event: BuildEvent) { if (!transferRun || transferRun.id !== event.runId) return; appendOutput(event); if (event.componentId && event.transferStatus) transferRun = { ...transferRun, components: transferRun.components.map((item) => item.componentId === event.componentId ? { ...item, status: event.transferStatus!, message: event.error || statusLabel(event.transferStatus!), result: event.transferResult ?? item.result } : item) }; if (event.type === 'transfer_run_finished' && event.runStatus) { transferRun = { ...transferRun, status: event.runStatus as TransferRun['status'], endTime: event.timestamp, error: event.error }; finishMessage(event.runStatus, event.error); } }
-  function applyReleaseEvent(event: BuildEvent) { if (!releaseRun || releaseRun.id !== event.runId) return; appendOutput(event); if (event.componentId && event.status) releaseRun = { ...releaseRun, components: releaseRun.components.map((item) => item.componentId === event.componentId ? { ...item, buildStatus: event.status!, buildMessage: (event.error ?? '').split(' | ')[0] || item.buildMessage, buildResult: event.result ?? item.buildResult, packageStatus: event.packageStatus ?? item.packageStatus, packageMessage: (event.error ?? '').split(' | ')[1] || item.packageMessage, packageResult: event.packageResult ?? item.packageResult, transferStatus: event.transferStatus ?? item.transferStatus, transferMessage: (event.error ?? '').split(' | ')[2] || item.transferMessage, transferResult: event.transferResult ?? item.transferResult } : item) }; if (event.type === 'release_run_finished' && event.runStatus) { releaseRun = { ...releaseRun, status: event.runStatus as ReleaseRun['status'], endTime: event.timestamp, error: event.error }; finishMessage(event.runStatus, event.error); } }
-  function finishMessage(status: string, error?: string) { if (status === 'completed') { successMessage = 'Run completed successfully.'; void loadActivity(); } else if (status === 'failed') errorMessage = error || 'Run failed.'; else if (status === 'cancelled') errorMessage = error || 'Run cancelled.'; }
+  onMount(() => {
+    const stopListening = EventsOn('release-launcher:build-event', (event: BuildEvent) =>
+      handleBuildEvent(event),
+    );
+    void loadProjects();
+    return stopListening;
+  });
+  async function loadProjects() {
+    loading = true;
+    try {
+      const [loadedProjects, loadedDali] = await Promise.all([GetProjects(), GetDaliConfig()]);
+      projects = loadedProjects.map(normalizeProject);
+      daliConfig = loadedDali;
+      selectedProjectId = projects[0]?.id ?? '';
+      selectedComponentIds = (projects[0]?.components ?? []).map((component) => component.id);
+      releaseEnvironment =
+        projects[0]?.defaultEnvironment ?? projects[0]?.environments?.[0]?.id ?? 'dev';
+      await Promise.all([loadActivity(), checkDali()]);
+    } catch (error) {
+      errorMessage = readableError(error);
+    } finally {
+      loading = false;
+    }
+  }
+  async function loadActivity() {
+    try {
+      const page: ActivityPage = await GetRecentRunsPage({
+        projectId: activityProject,
+        environment: activityEnvironment,
+        status: activityStatus,
+        search: activitySearch,
+        page: activityPage,
+        pageSize: activityPageSize,
+      });
+      activity = page.runs;
+      activityTotal = page.total;
+      activityTotalPages = page.totalPages;
+    } catch (error) {
+      errorMessage = readableError(error);
+    }
+  }
+  async function refreshActivity() {
+    activityPage = 1;
+    await loadActivity();
+  }
+  async function checkDali() {
+    daliChecking = true;
+    try {
+      daliAvailability = await CheckDaliAvailability();
+    } catch (error) {
+      errorMessage = readableError(error);
+    } finally {
+      daliChecking = false;
+    }
+  }
+  function selectProject(id: string) {
+    if (operationActive) return;
+    selectedProjectId = id;
+    const project = projects.find((item) => item.id === id);
+    selectedComponentIds = (project?.components ?? []).map((component) => component.id);
+    releaseEnvironment = project?.defaultEnvironment ?? project?.environments?.[0]?.id ?? 'dev';
+  }
+  function selectEnvironment(id: string) {
+    if (!operationActive) releaseEnvironment = id;
+  }
+  function setOperation(event: Event) {
+    operation = selectValue(event) as Operation;
+    if (operation !== 'transfer') {
+      directPackagePaths = [];
+      folderZipFiles = [];
+    }
+  }
+  function toggleComponent(component: Component) {
+    if (!operationActive)
+      selectedComponentIds = selectedComponentIds.includes(component.id)
+        ? selectedComponentIds.filter((id) => id !== component.id)
+        : [...selectedComponentIds, component.id];
+  }
+  function selectAllComponents() {
+    if (selectedProject)
+      selectedComponentIds = (selectedProject.components ?? []).map((component) => component.id);
+  }
+  function selectNoComponents() {
+    selectedComponentIds = [];
+  }
+  function resetRunState() {
+    buildRun = null;
+    packageRun = null;
+    transferRun = null;
+    releaseRun = null;
+    buildOutput = [];
+    pendingBuildEvents = [];
+    errorMessage = '';
+    successMessage = '';
+    namingError = '';
+    overwrite = false;
+    namingPlan = null;
+    buildReview = false;
+  }
+  function continueToReview() {
+    if (!selectedProject) {
+      errorMessage = 'Create or select a project first.';
+      return;
+    }
+    if (operation === 'transfer' && directPackagePaths.length === 0) {
+      errorMessage = 'Select at least one ZIP package before continuing.';
+      return;
+    }
+    if (operation !== 'transfer' && selectedComponentIds.length === 0) {
+      errorMessage = 'Select at least one component.';
+      return;
+    }
+    resetRunState();
+    if (operation === 'build') {
+      buildReview = true;
+      step = 2;
+      return;
+    }
+    void prepareNaming();
+  }
+  async function prepareNaming() {
+    if (!selectedProject) return;
+    operationStarting = true;
+    try {
+      if (operation === 'transfer') {
+        const transferPlan = await GetTransferPlan(packageRequest() as TransferRequest);
+        if (transferPlan.hasMissing)
+          throw new Error('One or more selected ZIP packages are unavailable.');
+        namingPlan = transferPlan as unknown as PackagePlan;
+        namingNames = {};
+      } else {
+        namingPlan = await GetPackagePlan({ ...packageRequest(), packageNames: {} });
+        const approved = namingNames;
+        namingNames = Object.fromEntries(
+          namingPlan.components
+            .filter((item) => item.selected && item.enabled)
+            .map((item) => [
+              item.componentId,
+              approved[item.componentId] ?? item.resolvedFilename ?? '',
+            ]),
+        );
+      }
+      step = 2;
+    } catch (error) {
+      errorMessage = readableError(error);
+    } finally {
+      operationStarting = false;
+    }
+  }
+  function packageRequest(): PackageRequest {
+    return {
+      projectId: selectedProject?.id ?? '',
+      componentIds: selectedComponentIds,
+      version: packageVersion.trim(),
+      overwrite,
+      filenameTemplate: packageTemplate.trim(),
+      packageNames: { ...namingNames },
+      environment: releaseEnvironment,
+      releaseDirectory: releaseDirectory.trim(),
+      ...(operation === 'transfer' ? { packagePaths: directPackagePaths } : {}),
+    };
+  }
+  async function editPackageName(componentId: string, value: string) {
+    namingNames = { ...namingNames, [componentId]: value };
+    if (!namingPlan) return;
+    try {
+      namingPlan = await GetPackagePlan({ ...packageRequest(), packageNames: { ...namingNames } });
+    } catch (error) {
+      namingError = readableError(error);
+    }
+  }
+  async function confirmReview() {
+    if (!selectedProject) return;
+    if (operation === 'build') {
+      await startBuild();
+      return;
+    }
+    if (!namingPlan) return;
+    try {
+      namingError = '';
+      const request = packageRequest();
+      if (operation === 'transfer') {
+        const transferPlan = await GetTransferPlan(request as TransferRequest);
+        if (transferPlan.hasMissing)
+          throw new Error('One or more selected ZIP packages are unavailable.');
+        namingPlan = transferPlan as unknown as PackagePlan;
+      } else {
+        namingPlan = await GetPackagePlan(request);
+        if (namingPlan.hasConflicts && !overwrite) {
+          namingError =
+            'Existing files need an explicit overwrite decision before this release can run.';
+          return;
+        }
+      }
+      await startApproved(request);
+    } catch (error) {
+      namingError = readableError(error);
+    }
+  }
+  async function startBuild() {
+    if (!selectedProject) return;
+    operationStarting = true;
+    step = 3;
+    try {
+      buildRun = await StartBuild({
+        projectId: selectedProject.id,
+        componentIds: selectedComponentIds,
+        environment: releaseEnvironment,
+      });
+      finishStarting(pendingBuildEvents);
+    } catch (error) {
+      operationStarting = false;
+      step = 2;
+      errorMessage = readableError(error);
+    }
+  }
+  async function startApproved(request: PackageRequest) {
+    operationStarting = true;
+    step = 3;
+    namingPlan = null;
+    buildReview = false;
+    try {
+      if (operation === 'package') packageRun = await StartPackage(request);
+      else if (operation === 'release') releaseRun = await StartBuildAndPackage(request);
+      else if (operation === 'release-transfer')
+        releaseRun = await StartBuildPackageAndSend(request);
+      else if (operation === 'transfer')
+        transferRun = await StartTransfer(request as TransferRequest);
+      finishStarting(pendingBuildEvents);
+    } catch (error) {
+      operationStarting = false;
+      step = 2;
+      errorMessage = readableError(error);
+    }
+  }
+  function finishStarting(events: BuildEvent[]) {
+    operationStarting = false;
+    pendingBuildEvents = [];
+    events.forEach(applyBuildEvent);
+  }
+  function cancelFlow() {
+    if (step === 2) {
+      namingPlan = null;
+      buildReview = false;
+      step = 1;
+      return;
+    }
+    void cancelOperation();
+  }
+  async function cancelOperation() {
+    const id = buildRun?.id ?? packageRun?.id ?? transferRun?.id ?? releaseRun?.id;
+    if (!id) return;
+    try {
+      await CancelBuild(id);
+    } catch (error) {
+      errorMessage = readableError(error);
+    }
+  }
+  function handleBuildEvent(event: BuildEvent) {
+    if (operationStarting && !buildRun && !packageRun && !releaseRun && !transferRun) {
+      pendingBuildEvents = [...pendingBuildEvents, event];
+      return;
+    }
+    applyBuildEvent(event);
+  }
+  function applyBuildEvent(event: BuildEvent) {
+    if (event.phase === 'package') applyPackageEvent(event);
+    else if (event.phase === 'transfer') applyTransferEvent(event);
+    else if (event.phase === 'release') applyReleaseEvent(event);
+    else applyBuildOnlyEvent(event);
+  }
+  function appendOutput(event: BuildEvent) {
+    if (event.type === 'output' && event.text !== undefined)
+      buildOutput = [
+        ...buildOutput,
+        {
+          componentName: event.componentName ?? 'Run',
+          stream: event.stream ?? 'system',
+          text: event.text,
+        },
+      ];
+  }
+  function applyBuildOnlyEvent(event: BuildEvent) {
+    if (!buildRun || buildRun.id !== event.runId) return;
+    appendOutput(event);
+    if (event.componentId && event.status)
+      buildRun = {
+        ...buildRun,
+        components: buildRun.components.map((item) =>
+          item.componentId === event.componentId
+            ? {
+                ...item,
+                status: event.status!,
+                message: event.error || statusLabel(event.status!),
+                result: event.result ?? item.result,
+              }
+            : item,
+        ),
+      };
+    if (event.type === 'run_finished' && event.runStatus) {
+      buildRun = {
+        ...buildRun,
+        status: event.runStatus,
+        endTime: event.timestamp,
+        error: event.error,
+      };
+      finishMessage(event.runStatus, event.error);
+    }
+  }
+  function applyPackageEvent(event: BuildEvent) {
+    if (!packageRun || packageRun.id !== event.runId) return;
+    appendOutput(event);
+    if (event.componentId && event.packageStatus)
+      packageRun = {
+        ...packageRun,
+        components: packageRun.components.map((item) =>
+          item.componentId === event.componentId
+            ? {
+                ...item,
+                status: event.packageStatus!,
+                message: event.error || statusLabel(event.packageStatus!),
+                result: event.packageResult ?? item.result,
+              }
+            : item,
+        ),
+      };
+    if (event.type === 'package_run_finished' && event.runStatus) {
+      packageRun = {
+        ...packageRun,
+        status: event.runStatus as PackageRun['status'],
+        endTime: event.timestamp,
+        error: event.error,
+      };
+      finishMessage(event.runStatus, event.error);
+    }
+  }
+  function applyTransferEvent(event: BuildEvent) {
+    if (!transferRun || transferRun.id !== event.runId) return;
+    appendOutput(event);
+    if (event.componentId && event.transferStatus)
+      transferRun = {
+        ...transferRun,
+        components: transferRun.components.map((item) =>
+          item.componentId === event.componentId
+            ? {
+                ...item,
+                status: event.transferStatus!,
+                message: event.error || statusLabel(event.transferStatus!),
+                result: event.transferResult ?? item.result,
+              }
+            : item,
+        ),
+      };
+    if (event.type === 'transfer_run_finished' && event.runStatus) {
+      transferRun = {
+        ...transferRun,
+        status: event.runStatus as TransferRun['status'],
+        endTime: event.timestamp,
+        error: event.error,
+      };
+      finishMessage(event.runStatus, event.error);
+    }
+  }
+  function applyReleaseEvent(event: BuildEvent) {
+    if (!releaseRun || releaseRun.id !== event.runId) return;
+    appendOutput(event);
+    if (event.componentId && event.status)
+      releaseRun = {
+        ...releaseRun,
+        components: releaseRun.components.map((item) =>
+          item.componentId === event.componentId
+            ? {
+                ...item,
+                buildStatus: event.status!,
+                buildMessage: (event.error ?? '').split(' | ')[0] || item.buildMessage,
+                buildResult: event.result ?? item.buildResult,
+                packageStatus: event.packageStatus ?? item.packageStatus,
+                packageMessage: (event.error ?? '').split(' | ')[1] || item.packageMessage,
+                packageResult: event.packageResult ?? item.packageResult,
+                transferStatus: event.transferStatus ?? item.transferStatus,
+                transferMessage: (event.error ?? '').split(' | ')[2] || item.transferMessage,
+                transferResult: event.transferResult ?? item.transferResult,
+              }
+            : item,
+        ),
+      };
+    if (event.type === 'release_run_finished' && event.runStatus) {
+      releaseRun = {
+        ...releaseRun,
+        status: event.runStatus as ReleaseRun['status'],
+        endTime: event.timestamp,
+        error: event.error,
+      };
+      finishMessage(event.runStatus, event.error);
+    }
+  }
+  function finishMessage(status: string, error?: string) {
+    if (status === 'completed') {
+      successMessage = 'Run completed successfully.';
+      void loadActivity();
+    } else if (status === 'failed') errorMessage = error || 'Run failed.';
+    else if (status === 'cancelled') errorMessage = error || 'Run cancelled.';
+  }
 
-  function openNewProject() { if (operationActive) return; settingsProject = { id: '', name: '', defaultEnvironment: 'dev', environments: defaultEnvironments(), components: [] }; settingsIsNew = true; editingComponentIndex = null; selectedEnvironmentId = 'dev'; settingsTab = 'general'; issues = []; view = 'projects'; }
-  function openProjectSettings(project: Project) { if (operationActive) return; settingsProject = structuredClone(project); settingsIsNew = false; editingComponentIndex = null; selectedEnvironmentId = environmentSelectionByProject[project.id] ?? project.defaultEnvironment ?? settingsProject.environments?.[0]?.id ?? ''; settingsTab = 'general'; issues = []; view = 'projects'; }
-  function updateProject(changes: Partial<Project>) { if (settingsProject && !operationActive) settingsProject = { ...settingsProject, ...changes }; }
-  function updateComponent(index: number, changes: Partial<Component>) { if (settingsProject && !operationActive) updateProject({ components: (settingsProject.components ?? []).map((component, i) => i === index ? { ...component, ...changes } : component) }); }
-  function addComponent() { if (settingsProject) { const components = settingsProject.components ?? []; updateProject({ components: [...components, emptyComponent(components)] }); editingComponentIndex = components.length; } }
-  function removeComponent(index: number) { if (settingsProject) updateProject({ components: (settingsProject.components ?? []).filter((_, i) => i !== index) }); }
-  function chooseSettingsEnvironment(id: string) { selectedEnvironmentId = id; if (settingsProject?.id) environmentSelectionByProject = { ...environmentSelectionByProject, [settingsProject.id]: id }; }
-  function openEnvironmentProfiles() { settingsTab = 'environments'; if (!selectedEnvironmentId) chooseSettingsEnvironment(settingsProject?.environments?.[0]?.id ?? ''); }
-  function addEnvironment() { if (!settingsProject) return; const id = uniqueEnvironmentId(settingsProject.environments ?? []); updateProject({ environments: [...(settingsProject.environments ?? []), { id, name: id, commands: {} }] }); chooseSettingsEnvironment(id); }
-  function duplicateEnvironment() { const source = selectedProfile(); if (!source || !settingsProject) return; const id = uniqueEnvironmentId(settingsProject.environments ?? []); updateProject({ environments: [...(settingsProject.environments ?? []), { id, name: `${source.name} Copy`, commands: { ...source.commands } }] }); chooseSettingsEnvironment(id); }
-  function selectedProfile(profileID = selectedEnvironmentId): EnvironmentProfile | null { return settingsProject?.environments?.find((environment) => environment.id === profileID) ?? null; }
-  function profileCommands(profile: EnvironmentProfile | null): Record<string, string> { return profile?.commands ?? {}; }
-  function resolvedEnvironmentCommand(component: Component, environmentId: string, profile: EnvironmentProfile | null = selectedEnvironmentProfile): { command: string; source: string } { const profileCommand = profile?.commands?.[component.id]?.trim() ?? ''; if (profileCommand) return { command: profileCommand, source: 'Profile command' }; const legacyCommand = component.buildCommands?.[environmentId]?.trim() ?? ''; if (legacyCommand) return { command: legacyCommand, source: 'Legacy environment command' }; const defaultCommand = component.buildCommand?.trim() ?? ''; if (defaultCommand) return { command: defaultCommand, source: 'Legacy default command' }; return { command: '', source: 'Not configured' }; }
-  function retryableStages(run: BuildRun | PackageRun | TransferRun | ReleaseRun | null): RetryStage[] { if (!run || run.status === 'completed' || run.status === 'running') return []; if ('buildStatus' in (run.components[0] ?? {})) { const components = run.components as ReleaseRun['components']; if (components.some((item) => item.selected && (item.buildStatus === 'failed' || item.buildStatus === 'cancelled'))) return ['build']; if (components.some((item) => item.selected && (item.packageStatus === 'failed' || item.packageStatus === 'cancelled'))) return ['package']; if (components.some((item) => item.selected && (item.transferStatus === 'failed' || item.transferStatus === 'cancelled'))) return ['transfer']; } else { const components = run.components as Array<{ selected: boolean; status: string }>; if (components.some((item) => item.selected && (item.status === 'failed' || item.status === 'cancelled'))) return [run === buildRun ? 'build' : run === packageRun ? 'package' : 'transfer']; } return []; }
-  function retryableComponentIds(run: BuildRun | PackageRun | TransferRun | ReleaseRun | null, stage: RetryStage): string[] { if (!run) return []; if ('buildStatus' in (run.components[0] ?? {})) { return (run as ReleaseRun).components.filter((item) => { if (!item.selected) return false; const status = stage === 'build' ? item.buildStatus : stage === 'package' ? item.packageStatus : item.transferStatus; const message = stage === 'build' ? item.buildMessage : stage === 'package' ? item.packageMessage : item.transferMessage; return status === 'failed' || status === 'cancelled' || message.toLowerCase().includes('previous component') || message.toLowerCase().includes('previous transfer'); }).map((item) => item.componentId); } return (run.components as Array<{ componentId: string; selected: boolean; status: string; message: string }>).filter((item) => item.selected && (item.status === 'failed' || item.status === 'cancelled' || item.message.toLowerCase().includes('previous component'))).map((item) => item.componentId); }
-  function openRetryDialog(stage: RetryStage) { const run = currentRun; if (!run) return; retryDialog = { stage, runId: run.id, componentIds: retryableComponentIds(run, stage) }; }
-  async function confirmRetry() { if (!retryDialog) return; const request: RetryRequest = { runId: retryDialog.runId, stage: retryDialog.stage, componentIds: retryDialog.componentIds }; retryStarting = true; try { const result = await RetryRun(request); buildOutput = []; if (result.build) { buildRun = result.build; packageRun = null; transferRun = null; releaseRun = null; } else if (result.package) { packageRun = result.package; buildRun = null; transferRun = null; releaseRun = null; } else if (result.transfer) { transferRun = result.transfer; buildRun = null; packageRun = null; releaseRun = null; } else if (result.release) { releaseRun = result.release; buildRun = null; packageRun = null; transferRun = null; } retryDialog = null; successMessage = `Retrying ${statusLabel(result.stage)} stage.`; } catch (error) { errorMessage = readableError(error); } finally { retryStarting = false; } }
-  function updateProfile(changes: Partial<EnvironmentProfile>, profileID = selectedEnvironmentId) { if (!settingsProject) return; const profile = selectedProfile(profileID); if (!profile) return; const nextID = changes.id?.trim() || profile.id; const environments = (settingsProject.environments ?? []).map((item) => item.id === profile.id ? { ...item, ...changes, id: nextID, commands: item.commands ?? {} } : item); updateProject({ environments, defaultEnvironment: settingsProject.defaultEnvironment === profile.id ? nextID : settingsProject.defaultEnvironment }); chooseSettingsEnvironment(nextID); }
-  function updateProfileCommand(profileID: string, componentId: string, command: string) { const profile = selectedProfile(profileID); if (profile) updateProfile({ commands: { ...profileCommands(profile), [componentId]: command } }, profileID); }
-  function requestDeleteEnvironment() { const profile = selectedProfile(); if (profile && (settingsProject?.environments?.length ?? 0) > 1) environmentDeleteCandidate = profile; }
-  function deleteEnvironment() { const profile = environmentDeleteCandidate; if (!profile || !settingsProject) return; updateProject({ environments: settingsProject.environments!.filter((item) => item.id !== profile.id), defaultEnvironment: settingsProject.defaultEnvironment === profile.id ? settingsProject.environments!.find((item) => item.id !== profile.id)?.id : settingsProject.defaultEnvironment }); selectedEnvironmentId = settingsProject.environments!.find((item) => item.id !== profile.id)?.id ?? ''; environmentDeleteCandidate = null; }
-  async function saveSettings() { if (!settingsProject) return; saving = true; issues = []; errorMessage = ''; try { const selectedBeforeSave = selectedEnvironmentId; const saved = normalizeProject(await SaveProject(settingsProject)); projects = projects.some((project) => project.id === saved.id) ? projects.map((project) => project.id === saved.id ? saved : project) : [...projects, saved]; selectedProjectId = saved.id; selectedComponentIds = (saved.components ?? []).map((component) => component.id); releaseEnvironment = saved.defaultEnvironment ?? saved.environments?.[0]?.id ?? 'dev'; settingsProject = structuredClone(saved); settingsIsNew = false; const preserved = saved.environments?.some((environment) => environment.id === selectedBeforeSave) ? selectedBeforeSave : saved.defaultEnvironment ?? saved.environments?.[0]?.id ?? ''; chooseSettingsEnvironment(preserved); successMessage = 'Project saved.'; } catch (error) { errorMessage = readableError(error); issues = [{ field: 'project', message: errorMessage }]; } finally { saving = false; } }
-  async function confirmDeleteProject() { if (!deleteCandidate) return; try { await DeleteProject(deleteCandidate.id); projects = projects.filter((project) => project.id !== deleteCandidate!.id); selectedProjectId = projects[0]?.id ?? ''; selectedComponentIds = (projects[0]?.components ?? []).map((component) => component.id); deleteCandidate = null; view = 'release'; successMessage = 'Project deleted.'; } catch (error) { errorMessage = readableError(error); } }
-  async function saveDaliSettings() { daliSaving = true; try { daliConfig = await SaveDaliConfig(daliConfig); await checkDali(); successMessage = 'Dali settings saved.'; } catch (error) { errorMessage = readableError(error); } finally { daliSaving = false; } }
-  async function browseComponentPath(index: number) { const path = await PickDirectory(settingsProject?.components[index]?.path ?? ''); if (path) updateComponent(index, { path }); }
-  async function browseOutputDirectory(index: number) { const path = await PickDirectory(settingsProject?.components[index]?.outputDirectory ?? ''); if (path) updateComponent(index, { outputDirectory: path }); }
-  async function browseDaliExecutable() { const path = await PickFile(daliConfig.executable); if (path) daliConfig = { ...daliConfig, executable: path }; }
-  async function browseReleaseDirectory() { const path = await PickDirectory(releaseDirectory); if (path) releaseDirectory = path; }
-  async function addZipFiles() { try { const paths = await PickFiles(directFolder || releaseDirectory); directPackagePaths = [...new Set([...directPackagePaths, ...paths])]; } catch (error) { errorMessage = readableError(error); } }
-  async function browsePackageFolder() { try { const path = await PickDirectory(directFolder); if (!path) return; directFolder = path; folderZipFiles = await ListZipFiles(path); } catch (error) { errorMessage = readableError(error); } }
-  function toggleDirectPath(path: string) { directPackagePaths = directPackagePaths.includes(path) ? directPackagePaths.filter((item) => item !== path) : [...directPackagePaths, path]; }
-  function selectAllZipFiles() { directPackagePaths = [...new Set([...directPackagePaths, ...folderZipFiles])]; }
-  function removeDirectPath(path: string) { directPackagePaths = directPackagePaths.filter((item) => item !== path); }
-  function clearDirectPaths() { directPackagePaths = []; }
-  async function openReleaseFolder(path?: string) { if (!path) return; try { await OpenReleaseFolder(path); } catch (error) { errorMessage = readableError(error); } }
-  function rerun(run: RunSummary) { selectedProjectId = run.projectId; selectedComponentIds = [...run.componentIds]; directPackagePaths = [...(run.packagePaths ?? [])]; releaseEnvironment = run.environment ?? ''; packageVersion = run.version ?? '1.0.0'; packageTemplate = run.filenameTemplate ?? ''; releaseDirectory = run.releaseDirectory ?? ''; namingNames = { ...(run.approvedPackageNames ?? {}) }; operation = operationFromSummary(run.operation); view = 'release'; step = 1; resetRunState(); }
-  function operationFromSummary(value: string): Operation { return value === 'build' ? 'build' : value === 'package' ? 'package' : value === 'transfer' ? 'transfer' : value === 'build-package-send' ? 'release-transfer' : 'release'; }
-  function operationLabel(value: Operation) { return { build: 'Build Only', release: 'Build & Package', package: 'Package Existing Build', transfer: 'Send Packages', 'release-transfer': 'Build, Package & Send' }[value]; }
-  function activityVersion(run: RunSummary) { return run.version ? `v${run.version} · ` : ''; }
-  function activityRetry(run: RunSummary) { return run.retryOfRunId ? ` · Retry of ${run.retryOfRunId}` : ''; }
-  function packageFileName(path: string) { return path.split(/[\\/]/).pop() ?? path; }
-  function activityPageLabel() { return activityTotalPages ? ` · Page ${activityPage} of ${activityTotalPages}` : ''; }
-  function activityCommands(run: RunSummary) { return Object.entries(run.daliCommands ?? {}); }
-  function normalizeProject(project: Project): Project { return { ...project, components: project.components ?? [], environments: project.environments ?? [] }; }
-  function legacyEnvironments(project: Project | null): EnvironmentProfile[] { const ids = new Set(['dev', 'staging', 'prod']); (project?.components ?? []).forEach((component) => Object.keys(component.buildCommands ?? {}).forEach((id) => ids.add(id))); return [...ids].map((id) => ({ id, name: id === 'dev' ? 'Development' : id === 'staging' ? 'Staging' : id === 'prod' ? 'Production' : id, commands: {} })); }
-  function defaultEnvironments(): EnvironmentProfile[] { return [{ id: 'dev', name: 'Development', commands: {} }, { id: 'staging', name: 'Staging', commands: {} }, { id: 'prod', name: 'Production', commands: {} }]; }
-  function emptyComponent(existing: Component[] = []): Component { const used = new Set(existing.map((component) => component.id)); let id = ''; do { newComponentSequence += 1; id = `component-${newComponentSequence}`; } while (used.has(id)); return { id, name: '', path: '', buildCommand: 'npm run build', buildCommands: {}, outputDirectory: 'build', package: { enabled: true, filename: '{project}-{component}-v{version}-{date}.zip' } }; }
-  function uniqueEnvironmentId(items: EnvironmentProfile[]) { let id = 'qa'; let index = 2; while (items.some((item) => item.id === id)) id = `env-${index++}`; return id; }
-  function statusLabel(status: string) { return status.charAt(0).toUpperCase() + status.slice(1); }
-  const statusIconMap = { ready: Circle, building: LoaderCircle, packaging: LoaderCircle, sending: LoaderCircle, success: CheckCircle2, completed: CheckCircle2, failed: CircleX, skipped: MinusCircle, cancelled: Ban };
-  function statusIcon(status: string) { return statusIconMap[status as keyof typeof statusIconMap] ?? Circle; }
-  function inputValue(event: Event) { return (event.currentTarget as HTMLInputElement).value; }
-  function checkedValue(event: Event) { return (event.currentTarget as HTMLInputElement).checked; }
-  function selectValue(event: Event) { return (event.currentTarget as HTMLSelectElement).value; }
-  function readableError(error: unknown) { return error instanceof Error ? error.message : String(error); }
-  function scheduleNotificationDismissal() { if (notificationTimer) clearTimeout(notificationTimer); notificationTimer = setTimeout(() => { errorMessage = ''; successMessage = ''; notificationTimer = null; }, 3000); }
+  function openNewProject() {
+    if (operationActive) return;
+    settingsProject = {
+      id: '',
+      name: '',
+      defaultEnvironment: 'dev',
+      environments: defaultEnvironments(),
+      components: [],
+    };
+    settingsIsNew = true;
+    editingComponentIndex = null;
+    selectedEnvironmentId = 'dev';
+    settingsTab = 'general';
+    issues = [];
+    view = 'projects';
+  }
+  function openProjectSettings(project: Project) {
+    if (operationActive) return;
+    settingsProject = structuredClone(project);
+    settingsIsNew = false;
+    editingComponentIndex = null;
+    selectedEnvironmentId =
+      environmentSelectionByProject[project.id] ??
+      project.defaultEnvironment ??
+      settingsProject.environments?.[0]?.id ??
+      '';
+    settingsTab = 'general';
+    issues = [];
+    view = 'projects';
+  }
+  function updateProject(changes: Partial<Project>) {
+    if (settingsProject && !operationActive) settingsProject = { ...settingsProject, ...changes };
+  }
+  function updateComponent(index: number, changes: Partial<Component>) {
+    if (settingsProject && !operationActive)
+      updateProject({
+        components: (settingsProject.components ?? []).map((component, i) =>
+          i === index ? { ...component, ...changes } : component,
+        ),
+      });
+  }
+  function addComponent() {
+    if (settingsProject) {
+      const components = settingsProject.components ?? [];
+      const next = createEmptyComponent(components, newComponentSequence);
+      newComponentSequence = next.nextSequence;
+      updateProject({ components: [...components, next.component] });
+      editingComponentIndex = components.length;
+    }
+  }
+  function removeComponent(index: number) {
+    if (settingsProject)
+      updateProject({
+        components: (settingsProject.components ?? []).filter((_, i) => i !== index),
+      });
+  }
+  function chooseSettingsEnvironment(id: string) {
+    selectedEnvironmentId = id;
+    if (settingsProject?.id)
+      environmentSelectionByProject = {
+        ...environmentSelectionByProject,
+        [settingsProject.id]: id,
+      };
+  }
+  function openEnvironmentProfiles() {
+    settingsTab = 'environments';
+    if (!selectedEnvironmentId)
+      chooseSettingsEnvironment(settingsProject?.environments?.[0]?.id ?? '');
+  }
+  function addEnvironment() {
+    if (!settingsProject) return;
+    const id = uniqueEnvironmentId(settingsProject.environments ?? []);
+    updateProject({
+      environments: [...(settingsProject.environments ?? []), { id, name: id, commands: {} }],
+    });
+    chooseSettingsEnvironment(id);
+  }
+  function duplicateEnvironment() {
+    const source = selectedProfile();
+    if (!source || !settingsProject) return;
+    const id = uniqueEnvironmentId(settingsProject.environments ?? []);
+    updateProject({
+      environments: [
+        ...(settingsProject.environments ?? []),
+        { id, name: `${source.name} Copy`, commands: { ...source.commands } },
+      ],
+    });
+    chooseSettingsEnvironment(id);
+  }
+  function selectedProfile(profileID = selectedEnvironmentId): EnvironmentProfile | null {
+    return (
+      settingsProject?.environments?.find((environment) => environment.id === profileID) ?? null
+    );
+  }
+  function profileCommands(profile: EnvironmentProfile | null): Record<string, string> {
+    return profile?.commands ?? {};
+  }
+  function resolvedEnvironmentCommand(
+    component: Component,
+    environmentId: string,
+    profile: EnvironmentProfile | null = selectedEnvironmentProfile,
+  ): { command: string; source: string } {
+    const profileCommand = profile?.commands?.[component.id]?.trim() ?? '';
+    if (profileCommand) return { command: profileCommand, source: 'Profile command' };
+    const legacyCommand = component.buildCommands?.[environmentId]?.trim() ?? '';
+    if (legacyCommand) return { command: legacyCommand, source: 'Legacy environment command' };
+    const defaultCommand = component.buildCommand?.trim() ?? '';
+    if (defaultCommand) return { command: defaultCommand, source: 'Legacy default command' };
+    return { command: '', source: 'Not configured' };
+  }
+  function retryableStages(
+    run: BuildRun | PackageRun | TransferRun | ReleaseRun | null,
+  ): RetryStage[] {
+    if (!run || run.status === 'completed' || run.status === 'running') return [];
+    if ('buildStatus' in (run.components[0] ?? {})) {
+      const components = run.components as ReleaseRun['components'];
+      if (
+        components.some(
+          (item) =>
+            item.selected && (item.buildStatus === 'failed' || item.buildStatus === 'cancelled'),
+        )
+      )
+        return ['build'];
+      if (
+        components.some(
+          (item) =>
+            item.selected &&
+            (item.packageStatus === 'failed' || item.packageStatus === 'cancelled'),
+        )
+      )
+        return ['package'];
+      if (
+        components.some(
+          (item) =>
+            item.selected &&
+            (item.transferStatus === 'failed' || item.transferStatus === 'cancelled'),
+        )
+      )
+        return ['transfer'];
+    } else {
+      const components = run.components as Array<{ selected: boolean; status: string }>;
+      if (
+        components.some(
+          (item) => item.selected && (item.status === 'failed' || item.status === 'cancelled'),
+        )
+      )
+        return [run === buildRun ? 'build' : run === packageRun ? 'package' : 'transfer'];
+    }
+    return [];
+  }
+  function retryableComponentIds(
+    run: BuildRun | PackageRun | TransferRun | ReleaseRun | null,
+    stage: RetryStage,
+  ): string[] {
+    if (!run) return [];
+    if ('buildStatus' in (run.components[0] ?? {})) {
+      return (run as ReleaseRun).components
+        .filter((item) => {
+          if (!item.selected) return false;
+          const status =
+            stage === 'build'
+              ? item.buildStatus
+              : stage === 'package'
+                ? item.packageStatus
+                : item.transferStatus;
+          const message =
+            stage === 'build'
+              ? item.buildMessage
+              : stage === 'package'
+                ? item.packageMessage
+                : item.transferMessage;
+          return (
+            status === 'failed' ||
+            status === 'cancelled' ||
+            message.toLowerCase().includes('previous component') ||
+            message.toLowerCase().includes('previous transfer')
+          );
+        })
+        .map((item) => item.componentId);
+    }
+    return (
+      run.components as Array<{
+        componentId: string;
+        selected: boolean;
+        status: string;
+        message: string;
+      }>
+    )
+      .filter(
+        (item) =>
+          item.selected &&
+          (item.status === 'failed' ||
+            item.status === 'cancelled' ||
+            item.message.toLowerCase().includes('previous component')),
+      )
+      .map((item) => item.componentId);
+  }
+  function openRetryDialog(stage: RetryStage) {
+    const run = currentRun;
+    if (!run) return;
+    retryDialog = { stage, runId: run.id, componentIds: retryableComponentIds(run, stage) };
+  }
+  async function confirmRetry() {
+    if (!retryDialog) return;
+    const request: RetryRequest = {
+      runId: retryDialog.runId,
+      stage: retryDialog.stage,
+      componentIds: retryDialog.componentIds,
+    };
+    retryStarting = true;
+    try {
+      const result = await RetryRun(request);
+      buildOutput = [];
+      if (result.build) {
+        buildRun = result.build;
+        packageRun = null;
+        transferRun = null;
+        releaseRun = null;
+      } else if (result.package) {
+        packageRun = result.package;
+        buildRun = null;
+        transferRun = null;
+        releaseRun = null;
+      } else if (result.transfer) {
+        transferRun = result.transfer;
+        buildRun = null;
+        packageRun = null;
+        releaseRun = null;
+      } else if (result.release) {
+        releaseRun = result.release;
+        buildRun = null;
+        packageRun = null;
+        transferRun = null;
+      }
+      retryDialog = null;
+      successMessage = `Retrying ${statusLabel(result.stage)} stage.`;
+    } catch (error) {
+      errorMessage = readableError(error);
+    } finally {
+      retryStarting = false;
+    }
+  }
+  function updateProfile(changes: Partial<EnvironmentProfile>, profileID = selectedEnvironmentId) {
+    if (!settingsProject) return;
+    const profile = selectedProfile(profileID);
+    if (!profile) return;
+    const nextID = changes.id?.trim() || profile.id;
+    const environments = (settingsProject.environments ?? []).map((item) =>
+      item.id === profile.id
+        ? { ...item, ...changes, id: nextID, commands: item.commands ?? {} }
+        : item,
+    );
+    updateProject({
+      environments,
+      defaultEnvironment:
+        settingsProject.defaultEnvironment === profile.id
+          ? nextID
+          : settingsProject.defaultEnvironment,
+    });
+    chooseSettingsEnvironment(nextID);
+  }
+  function updateProfileCommand(profileID: string, componentId: string, command: string) {
+    const profile = selectedProfile(profileID);
+    if (profile)
+      updateProfile(
+        { commands: { ...profileCommands(profile), [componentId]: command } },
+        profileID,
+      );
+  }
+  function requestDeleteEnvironment() {
+    const profile = selectedProfile();
+    if (profile && (settingsProject?.environments?.length ?? 0) > 1)
+      environmentDeleteCandidate = profile;
+  }
+  function deleteEnvironment() {
+    const profile = environmentDeleteCandidate;
+    if (!profile || !settingsProject) return;
+    updateProject({
+      environments: settingsProject.environments!.filter((item) => item.id !== profile.id),
+      defaultEnvironment:
+        settingsProject.defaultEnvironment === profile.id
+          ? settingsProject.environments!.find((item) => item.id !== profile.id)?.id
+          : settingsProject.defaultEnvironment,
+    });
+    selectedEnvironmentId =
+      settingsProject.environments!.find((item) => item.id !== profile.id)?.id ?? '';
+    environmentDeleteCandidate = null;
+  }
+  async function saveSettings() {
+    if (!settingsProject) return;
+    saving = true;
+    issues = [];
+    errorMessage = '';
+    try {
+      const selectedBeforeSave = selectedEnvironmentId;
+      const saved = normalizeProject(await SaveProject(settingsProject));
+      projects = projects.some((project) => project.id === saved.id)
+        ? projects.map((project) => (project.id === saved.id ? saved : project))
+        : [...projects, saved];
+      selectedProjectId = saved.id;
+      selectedComponentIds = (saved.components ?? []).map((component) => component.id);
+      releaseEnvironment = saved.defaultEnvironment ?? saved.environments?.[0]?.id ?? 'dev';
+      settingsProject = structuredClone(saved);
+      settingsIsNew = false;
+      const preserved = saved.environments?.some(
+        (environment) => environment.id === selectedBeforeSave,
+      )
+        ? selectedBeforeSave
+        : (saved.defaultEnvironment ?? saved.environments?.[0]?.id ?? '');
+      chooseSettingsEnvironment(preserved);
+      successMessage = 'Project saved.';
+    } catch (error) {
+      errorMessage = readableError(error);
+      issues = [{ field: 'project', message: errorMessage }];
+    } finally {
+      saving = false;
+    }
+  }
+  async function confirmDeleteProject() {
+    if (!deleteCandidate) return;
+    try {
+      await DeleteProject(deleteCandidate.id);
+      projects = projects.filter((project) => project.id !== deleteCandidate!.id);
+      selectedProjectId = projects[0]?.id ?? '';
+      selectedComponentIds = (projects[0]?.components ?? []).map((component) => component.id);
+      deleteCandidate = null;
+      view = 'release';
+      successMessage = 'Project deleted.';
+    } catch (error) {
+      errorMessage = readableError(error);
+    }
+  }
+  async function saveDaliSettings() {
+    daliSaving = true;
+    try {
+      daliConfig = await SaveDaliConfig(daliConfig);
+      await checkDali();
+      successMessage = 'Dali settings saved.';
+    } catch (error) {
+      errorMessage = readableError(error);
+    } finally {
+      daliSaving = false;
+    }
+  }
+  async function browseComponentPath(index: number) {
+    const path = await PickDirectory(settingsProject?.components[index]?.path ?? '');
+    if (path) updateComponent(index, { path });
+  }
+  async function browseOutputDirectory(index: number) {
+    const path = await PickDirectory(settingsProject?.components[index]?.outputDirectory ?? '');
+    if (path) updateComponent(index, { outputDirectory: path });
+  }
+  async function browseDaliExecutable() {
+    const path = await PickFile(daliConfig.executable);
+    if (path) daliConfig = { ...daliConfig, executable: path };
+  }
+  async function browseReleaseDirectory() {
+    const path = await PickDirectory(releaseDirectory);
+    if (path) releaseDirectory = path;
+  }
+  async function addZipFiles() {
+    try {
+      const paths = await PickFiles(directFolder || releaseDirectory);
+      directPackagePaths = [...new Set([...directPackagePaths, ...paths])];
+    } catch (error) {
+      errorMessage = readableError(error);
+    }
+  }
+  async function browsePackageFolder() {
+    try {
+      const path = await PickDirectory(directFolder);
+      if (!path) return;
+      directFolder = path;
+      folderZipFiles = await ListZipFiles(path);
+    } catch (error) {
+      errorMessage = readableError(error);
+    }
+  }
+  function toggleDirectPath(path: string) {
+    directPackagePaths = directPackagePaths.includes(path)
+      ? directPackagePaths.filter((item) => item !== path)
+      : [...directPackagePaths, path];
+  }
+  function selectAllZipFiles() {
+    directPackagePaths = [...new Set([...directPackagePaths, ...folderZipFiles])];
+  }
+  function removeDirectPath(path: string) {
+    directPackagePaths = directPackagePaths.filter((item) => item !== path);
+  }
+  function clearDirectPaths() {
+    directPackagePaths = [];
+  }
+  async function openReleaseFolder(path?: string) {
+    if (!path) return;
+    try {
+      await OpenReleaseFolder(path);
+    } catch (error) {
+      errorMessage = readableError(error);
+    }
+  }
+  function rerun(run: RunSummary) {
+    selectedProjectId = run.projectId;
+    selectedComponentIds = [...run.componentIds];
+    directPackagePaths = [...(run.packagePaths ?? [])];
+    releaseEnvironment = run.environment ?? '';
+    packageVersion = run.version ?? '1.0.0';
+    packageTemplate = run.filenameTemplate ?? '';
+    releaseDirectory = run.releaseDirectory ?? '';
+    namingNames = { ...(run.approvedPackageNames ?? {}) };
+    operation = operationFromSummary(run.operation);
+    view = 'release';
+    step = 1;
+    resetRunState();
+  }
+  function operationFromSummary(value: string): Operation {
+    return value === 'build'
+      ? 'build'
+      : value === 'package'
+        ? 'package'
+        : value === 'transfer'
+          ? 'transfer'
+          : value === 'build-package-send'
+            ? 'release-transfer'
+            : 'release';
+  }
+  function operationLabel(value: Operation) {
+    return {
+      build: 'Build Only',
+      release: 'Build & Package',
+      package: 'Package Existing Build',
+      transfer: 'Send Packages',
+      'release-transfer': 'Build, Package & Send',
+    }[value];
+  }
+  function activityVersion(run: RunSummary) {
+    return run.version ? `v${run.version} · ` : '';
+  }
+  function activityRetry(run: RunSummary) {
+    return run.retryOfRunId ? ` · Retry of ${run.retryOfRunId}` : '';
+  }
+  function packageFileName(path: string) {
+    return path.split(/[\\/]/).pop() ?? path;
+  }
+  function activityPageLabel() {
+    return activityTotalPages ? ` · Page ${activityPage} of ${activityTotalPages}` : '';
+  }
+  function activityCommands(run: RunSummary) {
+    return Object.entries(run.daliCommands ?? {});
+  }
+  function statusLabel(status: string) {
+    return status.charAt(0).toUpperCase() + status.slice(1);
+  }
+  const statusIconMap = {
+    ready: Circle,
+    building: LoaderCircle,
+    packaging: LoaderCircle,
+    sending: LoaderCircle,
+    success: CheckCircle2,
+    completed: CheckCircle2,
+    failed: CircleX,
+    skipped: MinusCircle,
+    cancelled: Ban,
+  };
+  function statusIcon(status: string) {
+    return statusIconMap[status as keyof typeof statusIconMap] ?? Circle;
+  }
+  function inputValue(event: Event) {
+    return (event.currentTarget as HTMLInputElement).value;
+  }
+  function checkedValue(event: Event) {
+    return (event.currentTarget as HTMLInputElement).checked;
+  }
+  function selectValue(event: Event) {
+    return (event.currentTarget as HTMLSelectElement).value;
+  }
+  function readableError(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  function scheduleNotificationDismissal() {
+    if (notificationTimer) clearTimeout(notificationTimer);
+    notificationTimer = setTimeout(() => {
+      errorMessage = '';
+      successMessage = '';
+      notificationTimer = null;
+    }, 3000);
+  }
 </script>
 
 <svelte:head><title>Moonman Release</title></svelte:head>
 <div class="app-shell">
-  {#if retryDialog}<div class="dialog-backdrop"><div class="dialog" role="dialog" aria-modal="true"><p class="eyebrow">Manual retry</p><h2>Retry the {statusLabel(retryDialog.stage)} stage?</h2><p>This retries {retryDialog.componentIds.length} failed or unfinished component(s) using the approved environment, package names, and release paths. Successful work will not run again.</p><div class="dialog-actions"><button class="secondary-button" disabled={retryStarting} on:click={() => (retryDialog = null)}><X size={15} strokeWidth={2} aria-hidden="true" />Cancel</button><button class="primary-button" disabled={retryStarting} on:click={() => void confirmRetry()}><RotateCcw size={15} strokeWidth={2} aria-hidden="true" />{retryStarting ? 'Retrying' : 'Retry stage'}</button></div></div></div>{/if}
-  <aside class="sidebar"><div class="sidebar-brand"><img src={logo} alt="" /><div><strong>Moonman Release</strong><small>Developer workspace</small></div></div><nav aria-label="Primary navigation"><button class:active={view === 'release'} on:click={() => (view = 'release')}><Rocket class="nav-icon" size={17} strokeWidth={2} aria-hidden="true" />Release</button><button class:active={view === 'projects'} on:click={() => (view = 'projects')}><FolderKanban class="nav-icon" size={17} strokeWidth={2} aria-hidden="true" />Projects</button><button class:active={view === 'activity'} on:click={() => { view = 'activity'; void loadActivity(); }}><History class="nav-icon" size={17} strokeWidth={2} aria-hidden="true" />Activity</button><button class:active={view === 'settings'} on:click={() => { view = 'settings'; void checkDali(); }}><Settings class="nav-icon" size={17} strokeWidth={2} aria-hidden="true" />Settings</button></nav><div class="sidebar-footer"><span class="online-dot"></span>Local workspace</div></aside>
-  <div class="workspace"><header class="topbar"><div><p class="breadcrumb">{view === 'release' ? 'Release' : view === 'projects' ? 'Projects' : view === 'activity' ? 'Activity' : 'Settings'}</p><h1>{view === 'release' ? 'Prepare a release' : view === 'projects' ? 'Project configuration' : view === 'activity' ? 'Recent activity' : 'Application settings'}</h1></div><div class="context-bar"><span><small>Project</small>{selectedProject?.name ?? 'No project'}</span><span><small>Environment</small>{(activeEnvironment?.name ?? releaseEnvironment) || 'Not selected'}</span><span class:busy={operationActive} class="status-pill">{operationActive ? 'In progress' : 'Ready'}</span></div></header>{#if step === 3 && currentRun && currentRun.status !== 'running' && retryableStages(currentRun).length}<div class="retry-strip"><strong>Some work did not complete.</strong>{#each retryableStages(currentRun) as stage}<button class="primary-button" disabled={retryStarting} on:click={() => openRetryDialog(stage)}><RotateCcw size={15} strokeWidth={2} aria-hidden="true" />Retry {statusLabel(stage)} stage</button>{/each}</div>{/if}
-    {#if errorMessage}<div class="alert error" role="alert">{errorMessage}<button class="alert-close" aria-label="Dismiss notification" on:click={() => (errorMessage = '')}><X size={15} strokeWidth={2} aria-hidden="true" /></button></div>{/if}{#if successMessage}<div class="alert success" role="status">{successMessage}</div>{/if}
+  {#if retryDialog}<div class="dialog-backdrop">
+      <div class="dialog" role="dialog" aria-modal="true">
+        <p class="eyebrow">Manual retry</p>
+        <h2>Retry the {statusLabel(retryDialog.stage)} stage?</h2>
+        <p>
+          This retries {retryDialog.componentIds.length} failed or unfinished component(s) using the approved
+          environment, package names, and release paths. Successful work will not run again.
+        </p>
+        <div class="dialog-actions">
+          <button
+            class="secondary-button"
+            disabled={retryStarting}
+            on:click={() => (retryDialog = null)}
+            ><X size={15} strokeWidth={2} aria-hidden="true" />Cancel</button
+          ><button
+            class="primary-button"
+            disabled={retryStarting}
+            on:click={() => void confirmRetry()}
+            ><RotateCcw size={15} strokeWidth={2} aria-hidden="true" />{retryStarting
+              ? 'Retrying'
+              : 'Retry stage'}</button
+          >
+        </div>
+      </div>
+    </div>{/if}
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src={logo} alt="" />
+      <div><strong>Moonman Release</strong><small>Developer workspace</small></div>
+    </div>
+    <nav aria-label="Primary navigation">
+      <button class:active={view === 'release'} on:click={() => (view = 'release')}
+        ><Rocket class="nav-icon" size={17} strokeWidth={2} aria-hidden="true" />Release</button
+      ><button class:active={view === 'projects'} on:click={() => (view = 'projects')}
+        ><FolderKanban
+          class="nav-icon"
+          size={17}
+          strokeWidth={2}
+          aria-hidden="true"
+        />Projects</button
+      ><button
+        class:active={view === 'activity'}
+        on:click={() => {
+          view = 'activity';
+          void loadActivity();
+        }}><History class="nav-icon" size={17} strokeWidth={2} aria-hidden="true" />Activity</button
+      ><button
+        class:active={view === 'settings'}
+        on:click={() => {
+          view = 'settings';
+          void checkDali();
+        }}
+        ><Settings class="nav-icon" size={17} strokeWidth={2} aria-hidden="true" />Settings</button
+      >
+    </nav>
+    <div class="sidebar-footer"><span class="online-dot"></span>Local workspace</div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <div>
+        <p class="breadcrumb">
+          {view === 'release'
+            ? 'Release'
+            : view === 'projects'
+              ? 'Projects'
+              : view === 'activity'
+                ? 'Activity'
+                : 'Settings'}
+        </p>
+        <h1>
+          {view === 'release'
+            ? 'Prepare a release'
+            : view === 'projects'
+              ? 'Project configuration'
+              : view === 'activity'
+                ? 'Recent activity'
+                : 'Application settings'}
+        </h1>
+      </div>
+      <div class="context-bar">
+        <span><small>Project</small>{selectedProject?.name ?? 'No project'}</span><span
+          ><small>Environment</small>{(activeEnvironment?.name ?? releaseEnvironment) ||
+            'Not selected'}</span
+        ><span class:busy={operationActive} class="status-pill"
+          >{operationActive ? 'In progress' : 'Ready'}</span
+        >
+      </div>
+    </header>
+    {#if step === 3 && currentRun && currentRun.status !== 'running' && retryableStages(currentRun).length}<div
+        class="retry-strip"
+      >
+        <strong>Some work did not complete.</strong
+        >{#each retryableStages(currentRun) as stage}<button
+            class="primary-button"
+            disabled={retryStarting}
+            on:click={() => openRetryDialog(stage)}
+            ><RotateCcw size={15} strokeWidth={2} aria-hidden="true" />Retry {statusLabel(stage)} stage</button
+          >{/each}
+      </div>{/if}
+    {#if errorMessage}<div class="alert error" role="alert">
+        {errorMessage}<button
+          class="alert-close"
+          aria-label="Dismiss notification"
+          on:click={() => (errorMessage = '')}
+          ><X size={15} strokeWidth={2} aria-hidden="true" /></button
+        >
+      </div>{/if}{#if successMessage}<div class="alert success" role="status">
+        {successMessage}
+      </div>{/if}
     {#if loading}<main class="card loading">Loading workspace</main>
-    {:else if view === 'release'}<main class="release-page"><div class="stepper" aria-label="Release steps"><div class:current={step === 1} class:done={step > 1}><b>{#if step > 1}<Check size={14} strokeWidth={2.5} aria-hidden="true" />{:else}1{/if}</b><span>Configure</span></div><i></i><div class:current={step === 2} class:done={step > 2}><b>{#if step > 2}<Check size={14} strokeWidth={2.5} aria-hidden="true" />{:else}2{/if}</b><span>Review</span></div><i></i><div class:current={step === 3}><b>3</b><span>Run</span></div></div>
-      {#if step === 1}<section class="card page-card"><div class="section-heading"><div><p class="eyebrow">Step 1 of 3</p><h2>Configure the release</h2><p>Choose what to release, where it should build, and how it should be packaged.</p></div></div><div class="config-grid"><label class="field"><span>Project</span><select value={selectedProjectId} on:change={(event) => selectProject(selectValue(event))}><option value="">Select a project</option>{#each projects as project}<option value={project.id}>{project.name}</option>{/each}</select></label><label class="field"><span>Environment profile</span><select value={releaseEnvironment} on:change={(event) => selectEnvironment(selectValue(event))}>{#each environments as environment}<option value={environment.id}>{environment.name}</option>{/each}</select></label><label class="field"><span>Release version</span><input value={packageVersion} on:input={(event) => (packageVersion = inputValue(event))} placeholder="1.0.0" /></label></div><div class="release-destination"><label class="field"><span>Release folder <small>(optional)</small></span><div class="input-action"><input value={releaseDirectory} on:input={(event) => (releaseDirectory = inputValue(event))} placeholder="Use the default project release folder" /><button class="secondary-button" on:click={() => void browseReleaseDirectory()}><FolderOpen size={15} strokeWidth={2} aria-hidden="true" />Browse</button>{#if releaseDirectory}<button class="ghost-button" aria-label="Use default release folder" title="Use default release folder" on:click={() => (releaseDirectory = '')}><X size={15} strokeWidth={2} aria-hidden="true" />Clear</button>{/if}</div><small>Leave blank for the default project/version folder.</small></label></div><div class="operation-picker"><div><h3>Operation</h3><p>Build &amp; Package is the recommended release path.</p></div><select value={operation} on:change={(event) => setOperation(event)}><option value="release">Build &amp; Package  Recommended</option><option value="build">Build Only</option><option value="package">Package Existing Build</option><option value="transfer">Send Packages</option><option value="release-transfer">Build, Package &amp; Send</option></select></div>
-        {#if selectedProject}<section class="direct-package-section">{#if operation === 'transfer'}<div class="section-heading compact"><div><h3>ZIP packages to send</h3><p>Select local ZIP files; project and environment remain the Activity context.</p></div><div class="inline-actions"><button class="secondary-button" on:click={() => void addZipFiles()}><Plus size={15} strokeWidth={2} aria-hidden="true" />Add ZIP files</button><button class="secondary-button" on:click={() => void browsePackageFolder()}><FolderOpen size={15} strokeWidth={2} aria-hidden="true" />Browse folder</button></div></div>{#if directFolder}<div class="muted package-folder-label">Folder: {directFolder}</div>{/if}{#if folderZipFiles.length}<div class="zip-picker-head"><strong>ZIP files in folder</strong><button class="text-button" on:click={selectAllZipFiles}>Select all</button></div><div class="zip-picker-list">{#each folderZipFiles as path}<label class="zip-picker-row"><input type="checkbox" checked={directPackagePaths.includes(path)} on:change={() => toggleDirectPath(path)} /><span>{packageFileName(path)}</span><small>{path}</small></label>{/each}</div>{/if}<div class="selected-package-list"><div class="zip-picker-head"><strong>Selected packages ({directPackagePaths.length})</strong>{#if directPackagePaths.length}<button class="text-button" on:click={clearDirectPaths}>Clear selection</button>{/if}</div>{#each directPackagePaths as path}<div class="selected-package-row"><span><strong>{packageFileName(path)}</strong><small>{path}</small></span><button class="ghost-button" aria-label="Remove package" on:click={() => removeDirectPath(path)}><X size={14} strokeWidth={2} aria-hidden="true" /></button></div>{:else}<div class="empty-state">No ZIP packages selected.</div>{/each}</div>{/if}</section><section class="component-section" class:transfer-hidden={operation === 'transfer'}><div class="section-heading compact"><div><h3>Components</h3><p>Select the components included in this operation.</p></div><div class="inline-actions"><label class="compact-search"><span class="sr-only">Filter components</span><Search size={13} strokeWidth={2} aria-hidden="true" /><input value={componentFilter} on:input={(event) => (componentFilter = inputValue(event))} placeholder="Filter" /></label><button class="text-button" on:click={selectAllComponents}>Select all</button><button class="text-button" on:click={selectNoComponents}>None</button></div></div><div class="component-table"><div class="component-table-head"><span>Include</span><span>Component</span><span>Status</span><span>Packaging</span></div>{#each selectedProject.components.filter((component) => component.name.toLowerCase().includes(componentFilter.toLowerCase())) as component}<label class="component-table-row"><input type="checkbox" checked={selectedComponentIds.includes(component.id)} on:change={() => toggleComponent(component)} /><strong>{component.name}</strong><span class="muted">Ready</span><span class:enabled={component.package.enabled} class="tag">{component.package.enabled ? 'Enabled' : 'Disabled'}</span></label>{:else}<div class="empty-state">No components configured. Add one under Projects.</div>{/each}</div></section>{:else}<div class="empty-state">Create a project under Projects to begin a release.</div>{/if}<details class="advanced"><summary>Advanced package naming</summary><div class="advanced-content"><label class="field"><span>Filename template</span><input value={packageTemplate} on:input={(event) => (packageTemplate = inputValue(event))} placeholder="Use component templates" /><small>Tokens: {`{project}`} {`{component}`} {`{version}`} {`{date}`} {`{time}`} {`{datetime}`}</small></label></div></details><div class="sticky-actions"><button class="primary-button" disabled={!selectedProject || (operation === 'transfer' ? directPackagePaths.length === 0 : selectedComponentIds.length === 0) || operationStarting} on:click={continueToReview}>{operationStarting ? 'Preparing' : 'Continue to Review'} <ArrowRight size={15} strokeWidth={2.2} aria-hidden="true" /></button></div></section>
-      {:else if step === 2}<section class="card page-card"><div class="section-heading"><div><p class="eyebrow">Step 2 of 3</p><h2>Review before running</h2><p>Confirm the resolved inputs. The operation will not start until you approve this plan.</p></div><span class="operation-badge">{operationLabel(operation)}</span></div><div class="review-summary"><div><small>Project</small><strong>{selectedProject?.name}</strong></div><div><small>Environment</small><strong>{activeEnvironment?.name ?? releaseEnvironment}</strong></div><div><small>Version</small><strong>{packageVersion}</strong></div><div><small>Components</small><strong>{operation === 'transfer' ? directPackagePaths.length : selectedComponentIds.length} selected</strong></div></div>{#if buildReview}<div class="compact-confirm"><span class="confirm-icon"><CheckCircle2 size={17} strokeWidth={2.5} aria-hidden="true" /></span><div><h3>Build confirmation</h3><p>Build {selectedComponentIds.length} component(s) using the {activeEnvironment?.name ?? releaseEnvironment} profile. Build output will be validated before the run completes.</p></div></div>{:else if namingPlan}<div class="review-list"><div class="review-list-head"><span>{operation === 'transfer' ? 'Package' : 'Component'}</span><span>{operation === 'transfer' ? 'Source path' : 'Approved filename'}</span><span>{operation === 'transfer' ? 'Full path' : 'Release path'}</span></div>{#each namingPlan.components.filter((item) => item.selected && item.enabled) as item}<div class="review-list-row"><strong>{item.componentName}</strong>{#if operation === 'transfer'}<div><code>{item.packagePath}</code><span class="success-text">Ready to send</span></div>{:else}<label><span class="sr-only">Filename for {item.componentName}</span><input value={namingNames[item.componentId] ?? ''} on:input={(event) => void editPackageName(item.componentId, inputValue(event))} /></label><div><code>{namingPlan.releaseDirectory}\{namingNames[item.componentId] ?? item.resolvedFilename}</code>{#if item.existing}<span class="warning-text">Existing file conflict</span>{:else}<span class="success-text">Available</span>{/if}</div>{/if}</div>{/each}</div>{#if namingPlan.hasConflicts}<label class="overwrite-choice"><input type="checkbox" checked={overwrite} on:change={(event) => (overwrite = checkedValue(event))} /><span>Allow replacement of existing files after this review</span></label>{/if}{/if}{#if namingError}<div class="validation-box">{namingError}</div>{/if}<div class="sticky-actions"><button class="secondary-button" on:click={cancelFlow}><ArrowLeft size={15} strokeWidth={2} aria-hidden="true" /> Back to Configure</button><button class="primary-button" disabled={operationStarting || (!buildReview && !namingPlan)} on:click={() => void confirmReview()}><Play size={15} strokeWidth={2} aria-hidden="true" />Confirm and Run</button></div></section>
-      {:else}<section class="card page-card run-page"><div class="section-heading"><div><p class="eyebrow">Step 3 of 3  {operationLabel(operation)}</p><h2>{currentRun ? currentRun.projectName : 'Starting run'}</h2><p>{currentRun?.environment ?? releaseEnvironment}  Version {currentRun && 'version' in currentRun ? currentRun.version : packageVersion}</p></div><span class:success={currentRun?.status === 'completed'} class:error={currentRun?.status === 'failed' || currentRun?.status === 'cancelled'} class="status-pill">{operationStarting ? 'Starting' : statusLabel(currentRun?.status ?? 'running')}</span></div>{#if releaseRun}<div class="progress-list">{#each releaseRun.components as item}<div class="progress-row"><div><strong>{item.componentName}</strong><small>Build: {item.buildMessage}  Package: {item.packageMessage}  Send: {item.transferMessage}</small>{#if item.transferResult?.command}<code class="transfer-command">{item.transferResult.command}</code>{/if}</div><span class="stage-tags"><em class={`status-${item.buildStatus}`}><svelte:component this={statusIcon(item.buildStatus)} size={14} strokeWidth={2} aria-hidden="true" />Build</em><em class={`status-${item.packageStatus}`}><svelte:component this={statusIcon(item.packageStatus)} size={14} strokeWidth={2} aria-hidden="true" />Package</em><em class={`status-${item.transferStatus}`}><svelte:component this={statusIcon(item.transferStatus)} size={14} strokeWidth={2} aria-hidden="true" />Send</em></span></div>{/each}</div>{:else if buildRun}<div class="progress-list">{#each buildRun.components as item}<div class="progress-row"><div><strong>{item.componentName}</strong><small>{item.message}</small></div><span class={`run-state status-${item.status}`}><svelte:component this={statusIcon(item.status)} size={14} strokeWidth={2} aria-hidden="true" />{statusLabel(item.status)}</span></div>{/each}</div>{:else if packageRun}<div class="progress-list">{#each packageRun.components as item}<div class="progress-row"><div><strong>{item.componentName}</strong><small>{item.message}</small></div><span class={`run-state status-${item.status}`}><svelte:component this={statusIcon(item.status)} size={14} strokeWidth={2} aria-hidden="true" />{statusLabel(item.status)}</span></div>{/each}</div>{:else if transferRun}<div class="progress-list">{#each transferRun.components as item}<div class="progress-row"><div><strong>{item.componentName}</strong><small>{item.message}</small>{#if item.result?.command}<code class="transfer-command">{item.result.command}</code>{/if}</div><span class={`run-state status-${item.status}`}><svelte:component this={statusIcon(item.status)} size={14} strokeWidth={2} aria-hidden="true" />{statusLabel(item.status)}</span></div>{/each}</div>{/if}{#if buildOutput.length}<details class="console-details"><summary>Live console output ({buildOutput.length} lines)</summary><div class="console" aria-live="polite">{#each buildOutput as line}<div class:stderr={line.stream === 'stderr'}><b>[{line.componentName}]</b> {line.text}</div>{/each}</div></details>{/if}{#if currentRun?.status === 'running' || operationStarting}<div class="run-actions"><button class="danger-button" on:click={() => void cancelOperation()}><Ban size={15} strokeWidth={2} aria-hidden="true" />Cancel run</button></div>{:else if currentRun}<div class="completion-actions"><button class="secondary-button" on:click={() => rerun({ runId: currentRun.id, projectId: currentRun.projectId, projectName: currentRun.projectName, environment: currentRun.environment, operation, version: 'version' in currentRun ? currentRun.version : packageVersion, componentIds: selectedComponentIds, startTime: currentRun.startTime, status: currentRun.status })}><RotateCcw size={15} strokeWidth={2} aria-hidden="true" />Rerun with review</button><button class="primary-button" on:click={() => { step = 1; resetRunState(); }}><Play size={15} strokeWidth={2} aria-hidden="true" />Start new release</button></div>{/if}</section>{/if}</main>
-    {:else if view === 'activity'}<main class="card page-card activity-page"><div class="section-heading"><div><p class="eyebrow">Run history</p><h2>Recent activity</h2><p>Search and review recent transfers, packages, and releases.</p></div><button class="secondary-button" on:click={() => void loadActivity()}><RefreshCw size={15} strokeWidth={2} aria-hidden="true" />Refresh</button></div><div class="activity-search"><Search size={15} strokeWidth={2} aria-hidden="true" /><input value={activitySearch} on:input={(event) => (activitySearch = inputValue(event))} on:change={() => void refreshActivity()} placeholder="Search run ID, project, component, error, retry, or Dali command" /></div><div class="filters"><select value={activityProject} on:change={(event) => { activityProject = selectValue(event); void refreshActivity(); }}><option value="">All projects</option>{#each projects as project}<option value={project.id}>{project.name}</option>{/each}</select><select value={activityStatus} on:change={(event) => { activityStatus = selectValue(event); void refreshActivity(); }}><option value="all">All statuses</option><option value="completed">Completed</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option><option value="running">Running</option></select><select value={activityEnvironment} on:change={(event) => { activityEnvironment = selectValue(event); void refreshActivity(); }}><option value="all">All environments</option>{#each [...new Set(projects.flatMap((project) => (project.environments ?? []).map((environment) => environment.id)))] as environment}<option value={environment}>{environment}</option>{/each}</select><select value={activityPageSize} on:change={(event) => { activityPageSize = Number(selectValue(event)); void refreshActivity(); }}><option value="10">10 per page</option><option value="25">25 per page</option><option value="50">50 per page</option></select></div><div class="activity-toolbar"><span>{activityTotal} results{activityPageLabel()}</span><div class="inline-actions"><button class="secondary-button" disabled={activityPage <= 1} on:click={() => { activityPage -= 1; void loadActivity(); }}><ArrowLeft size={14} strokeWidth={2} aria-hidden="true" />Previous</button><button class="secondary-button" disabled={activityTotalPages === 0 || activityPage >= activityTotalPages} on:click={() => { activityPage += 1; void loadActivity(); }}>Next<ArrowRight size={14} strokeWidth={2} aria-hidden="true" /></button></div></div><div class="activity-list">{#each filteredActivity as run}<article class="activity-row"><div class="activity-icon"><svelte:component this={statusIcon(run.status)} size={15} strokeWidth={2} aria-hidden="true" /></div><div class="activity-main"><div><strong>{run.projectName}</strong><span class="tag">{run.environment || 'legacy'} · {operationFromSummary(run.operation) === 'release' ? 'Build & Package' : run.operation}</span></div><small>{activityVersion(run)}{(run.componentNames?.length ?? run.componentIds.length)} component(s) · Attempt {run.attempt ?? 1}{activityRetry(run)} · {new Date(run.startTime).toLocaleString()}</small>{#if run.errorSummary}<p class="warning-text">{run.errorSummary}</p>{/if}<details class="activity-details"><summary>Details</summary>{#if run.componentNames?.length}<p><strong>Components:</strong> {run.componentNames.join(', ')}</p>{/if}{#if run.packagePaths?.length}<p><strong>Packages:</strong> {run.packagePaths.join(', ')}</p>{/if}{#if run.command}<p><strong>Dali command:</strong> <code>{run.command}</code></p>{/if}{#each activityCommands(run) as entry}<p><strong>{entry[0]}:</strong> <code>{entry[1]}</code></p>{/each}</details></div>{#if run.releaseDirectory}<button class="ghost-button" on:click={() => void openReleaseFolder(run.releaseDirectory)}><FolderOpen size={15} strokeWidth={2} aria-hidden="true" />Open folder</button>{/if}<button class="secondary-button" on:click={() => rerun(run)}><RotateCcw size={15} strokeWidth={2} aria-hidden="true" />Load for review</button></article>{:else}<div class="empty-state large">No runs match these filters.</div>{/each}</div></main>
-    {:else if view === 'projects'}<main class="settings-layout"><aside class="card project-list"><div class="section-heading compact"><h2>Projects</h2><button class="icon-button" title="Add project" aria-label="Add project" on:click={openNewProject}><Plus size={17} strokeWidth={2.2} aria-hidden="true" /></button></div>{#each projects as project}<button class:active={settingsProject?.id === project.id} class="project-list-item" on:click={() => openProjectSettings(project)}><strong>{project.name}</strong><small>{project.components.length} components  {project.environments?.length ?? 0} environments</small></button>{:else}<p class="muted">No projects yet.</p>{/each}</aside><section class="card settings-editor">{#if settingsProject}<div class="section-heading"><div><p class="eyebrow">Project configuration</p><h2>{settingsIsNew ? 'New project' : settingsProject.name}</h2></div>{#if !settingsIsNew}<button class="danger-button" on:click={() => (deleteCandidate = settingsProject)}><Trash2 size={15} strokeWidth={2} aria-hidden="true" />Delete project</button>{/if}</div><div class="subnav"><button class:active={settingsTab === 'general'} on:click={() => (settingsTab = 'general')}>General</button><button class:active={settingsTab === 'components'} on:click={() => (settingsTab = 'components')}>Components</button><button class:active={settingsTab === 'environments'} on:click={openEnvironmentProfiles}>Environment Profiles</button></div>{#if issues.length}<div class="validation-box">{#each issues as issue}<div>{issue.field}: {issue.message}</div>{/each}</div>{/if}{#if settingsTab === 'general'}<label class="field"><span>Project name</span><input value={settingsProject.name} on:input={(event) => updateProject({ name: inputValue(event) })} placeholder="LokalStore" /></label><div class="settings-note"><strong>Project profile</strong><p>Components and environment profiles stay together so a release always makes its target explicit.</p></div>{:else if settingsTab === 'components'}<div class="section-heading compact"><div><h3>Components</h3><p>Manage components as compact rows; open details only for the component you are configuring.</p></div><div class="component-section-actions"><span class="component-count">{settingsProject.components.length} configured</span><button class="text-button" on:click={addComponent}><Plus size={14} strokeWidth={2} aria-hidden="true" />Add component</button></div></div><div class="component-list">{#each settingsProject.components as component, index}<article class:active={editingComponentIndex === index} class="component-row"><div class="component-row-main"><span class="component-number">{index + 1}</span><div><strong>{component.name || 'New component'}</strong><small>{component.path || 'Project path not configured'}</small><div class="component-row-meta"><span class="component-row-id">{component.id}</span><span class:enabled={component.package.enabled} class="tag">{component.package.enabled ? 'Packaging enabled' : 'Packaging disabled'}</span></div></div></div><div class="component-row-actions"><button class="secondary-button" on:click={() => (editingComponentIndex = editingComponentIndex === index ? null : index)}>{editingComponentIndex === index ? 'Hide details' : 'View details'}</button><button class="remove-button" on:click={() => removeComponent(index)}><Trash2 size={14} strokeWidth={2} aria-hidden="true" />Remove</button></div></article>{:else}<div class="empty-state">Add a component above.</div>{/each}</div>{#if editingComponentIndex !== null}{#each settingsProject.components as component, index}{#if editingComponentIndex === index}<article class="component-details"><div class="section-heading compact"><div><p class="eyebrow">Component details</p><h3>{component.name || 'New component'}</h3></div><button class="text-button" on:click={() => (editingComponentIndex = null)}>Close details</button></div><div class="form-grid"><label class="field"><span>Name</span><input value={component.name} on:input={(event) => updateComponent(index, { name: inputValue(event) })} /></label><div class="field"><span>Project path</span><div class="input-action"><input value={component.path} on:input={(event) => updateComponent(index, { path: inputValue(event) })} /><button class="secondary-button" on:click={() => void browseComponentPath(index)}><FolderOpen size={15} strokeWidth={2} aria-hidden="true" />Browse</button></div></div><label class="field"><span>Legacy default build command</span><input value={component.buildCommand} on:input={(event) => updateComponent(index, { buildCommand: inputValue(event) })} /><small>Used when the selected profile has no component command.</small></label><div class="field"><span>Output directory</span><div class="input-action"><input value={component.outputDirectory} on:input={(event) => updateComponent(index, { outputDirectory: inputValue(event) })} /><button class="secondary-button" on:click={() => void browseOutputDirectory(index)}><FolderOpen size={15} strokeWidth={2} aria-hidden="true" />Browse</button></div></div><label class="field checkbox-field"><input type="checkbox" checked={component.package.enabled} on:change={(event) => updateComponent(index, { package: { ...component.package, enabled: checkedValue(event) } })} /><span>Packaging enabled</span></label><label class="field"><span>Package filename template</span><input value={component.package.filename} on:input={(event) => updateComponent(index, { package: { ...component.package, filename: inputValue(event) } })} /></label></div></article>{/if}{/each}{/if}{:else}<div class="environment-editor"><div class="environment-list"><div class="section-heading compact"><h3>Profiles</h3><button class="text-button" on:click={addEnvironment}><Plus size={14} strokeWidth={2} aria-hidden="true" />Add</button></div>{#each settingsProject.environments ?? [] as environment}<button class:active={selectedEnvironmentId === environment.id} class="environment-item" on:click={() => chooseSettingsEnvironment(environment.id)}><strong>{environment.name}</strong><small>{environment.id}{settingsProject.defaultEnvironment === environment.id ? '  Default' : ''}</small></button>{/each}</div><div class="environment-detail">{#if selectedEnvironmentProfile}<div class="section-heading compact"><div><h3>{selectedEnvironmentProfile.name || selectedEnvironmentProfile.id}</h3><p>Commands are saved per profile and resolved in this order: profile, legacy environment, then default.</p></div><div class="inline-actions"><button class="text-button" on:click={duplicateEnvironment}><Copy size={14} strokeWidth={2} aria-hidden="true" />Duplicate</button><button class="remove-button" on:click={requestDeleteEnvironment}><Trash2 size={14} strokeWidth={2} aria-hidden="true" />Delete</button></div></div><div class="form-grid"><label class="field"><span>Profile name</span><input value={selectedEnvironmentProfile.name} on:input={(event) => updateProfile({ name: inputValue(event) })} /></label><label class="field"><span>Identifier</span><input value={selectedEnvironmentProfile.id} on:change={(event) => updateProfile({ id: inputValue(event).trim().toLowerCase() }, selectedEnvironmentProfile.id)} /></label><label class="field"><span>Default environment</span><select value={settingsProject.defaultEnvironment} on:change={(event) => updateProject({ defaultEnvironment: selectValue(event) })}>{#each settingsProject.environments ?? [] as environment}<option value={environment.id}>{environment.name}</option>{/each}</select></label></div><div class="command-table"><div class="command-table-head"><span>Component</span><span>Profile command</span><span>Resolved command</span><span>Source</span></div>{#each settingsProject.components as component}{@const resolved = resolvedEnvironmentCommand(component, selectedEnvironmentProfile.id)}<div class="command-table-row"><strong>{component.name}</strong><input value={profileCommands(selectedEnvironmentProfile)[component.id] ?? ''} on:input={(event) => updateProfileCommand(selectedEnvironmentProfile.id, component.id, inputValue(event))} placeholder="Uses resolved fallback" /><code class:unconfigured={!resolved.command}>{resolved.command || 'No command configured'}</code><small>{resolved.source}</small></div>{:else}<div class="empty-state">Add components under Components to configure environment commands.</div>{/each}</div>{:else}<div class="empty-state">Add an environment profile to configure commands.</div>{/if}</div></div>{/if}<div class="sticky-actions"><button class="secondary-button" on:click={() => (view = 'release')}>Cancel</button><button class="primary-button" disabled={saving} on:click={() => void saveSettings()}><Save size={15} strokeWidth={2} aria-hidden="true" />{saving ? 'Saving' : 'Save project'}</button></div>{:else}<div class="empty-state large">Select a project or add a new one.</div>{/if}</section></main>
-    {:else}<main class="card page-card settings-page"><div class="section-heading"><div><p class="eyebrow">Global configuration</p><h2>Settings</h2><p>Dali remains application-wide; release environments belong to each project.</p></div></div><div class="settings-note"><h3>Dali transfer</h3><p>Configure the installed Dali CLI and destination behavior for Send Packages operations.</p></div><div class="dali-diagnostics"><div><strong>Dali availability</strong>{#if daliChecking}<span class="muted">Checking</span>{:else if daliAvailability?.available}<span class="diagnostic-status available">Available</span><small>{daliAvailability.resolvedExecutable}</small>{:else}<span class="diagnostic-status missing">Not found</span><small>{daliAvailability?.error ?? 'Availability has not been checked yet.'}</small>{/if}</div><div class="inline-actions"><button class="secondary-button" disabled={daliChecking} on:click={() => void checkDali()}><RefreshCw size={14} strokeWidth={2} aria-hidden="true" />Check now</button>{#if daliAvailability && !daliAvailability.available}<button class="text-button" on:click={() => void OpenExternalURL(daliAvailability?.releaseUrl ?? '')}>Dali releases</button>{/if}</div>{#if daliAvailability && !daliAvailability.available}<p>Install with <code>{daliAvailability.installCommand}</code></p>{/if}</div><div class="form-grid"><div class="field"><span>Dali executable</span><div class="input-action"><input value={daliConfig.executable} on:input={(event) => (daliConfig = { ...daliConfig, executable: inputValue(event) })} /><button class="secondary-button" on:click={() => void browseDaliExecutable()}><FolderOpen size={15} strokeWidth={2} aria-hidden="true" />Browse</button></div></div><label class="field"><span>Peer name</span><input value={daliConfig.peerName} on:input={(event) => (daliConfig = { ...daliConfig, peerName: inputValue(event), peerAddress: '' })} /></label><label class="field"><span>Peer address</span><input value={daliConfig.peerAddress} on:input={(event) => (daliConfig = { ...daliConfig, peerAddress: inputValue(event), peerName: '' })} /></label><label class="field checkbox-field"><input type="checkbox" checked={daliConfig.auto} on:change={(event) => (daliConfig = { ...daliConfig, auto: checkedValue(event) })} /><span>Auto-select a single peer</span></label><label class="field checkbox-field"><input type="checkbox" checked={daliConfig.wait} on:change={(event) => (daliConfig = { ...daliConfig, wait: checkedValue(event) })} /><span>Wait for discovery timeout</span></label></div><div class="sticky-actions"><button class="primary-button" disabled={daliSaving} on:click={() => void saveDaliSettings()}><Save size={15} strokeWidth={2} aria-hidden="true" />{daliSaving ? 'Saving' : 'Save settings'}</button></div></main>{/if}
+    {:else if view === 'release'}<main class="release-page">
+        <div class="stepper" aria-label="Release steps">
+          <div class:current={step === 1} class:done={step > 1}>
+            <b
+              >{#if step > 1}<Check
+                  size={14}
+                  strokeWidth={2.5}
+                  aria-hidden="true"
+                />{:else}1{/if}</b
+            ><span>Configure</span>
+          </div>
+          <i></i>
+          <div class:current={step === 2} class:done={step > 2}>
+            <b
+              >{#if step > 2}<Check
+                  size={14}
+                  strokeWidth={2.5}
+                  aria-hidden="true"
+                />{:else}2{/if}</b
+            ><span>Review</span>
+          </div>
+          <i></i>
+          <div class:current={step === 3}><b>3</b><span>Run</span></div>
+        </div>
+        {#if step === 1}<section class="card page-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Step 1 of 3</p>
+                <h2>Configure the release</h2>
+                <p>Choose what to release, where it should build, and how it should be packaged.</p>
+              </div>
+            </div>
+            <div class="config-grid">
+              <label class="field"
+                ><span>Project</span><select
+                  value={selectedProjectId}
+                  on:change={(event) => selectProject(selectValue(event))}
+                  ><option value="">Select a project</option>{#each projects as project}<option
+                      value={project.id}>{project.name}</option
+                    >{/each}</select
+                ></label
+              ><label class="field"
+                ><span>Environment profile</span><select
+                  value={releaseEnvironment}
+                  on:change={(event) => selectEnvironment(selectValue(event))}
+                  >{#each environments as environment}<option value={environment.id}
+                      >{environment.name}</option
+                    >{/each}</select
+                ></label
+              ><label class="field"
+                ><span>Release version</span><input
+                  value={packageVersion}
+                  on:input={(event) => (packageVersion = inputValue(event))}
+                  placeholder="1.0.0"
+                /></label
+              >
+            </div>
+            <div class="release-destination">
+              <label class="field"
+                ><span>Release folder <small>(optional)</small></span>
+                <div class="input-action">
+                  <input
+                    value={releaseDirectory}
+                    on:input={(event) => (releaseDirectory = inputValue(event))}
+                    placeholder="Use the default project release folder"
+                  /><button class="secondary-button" on:click={() => void browseReleaseDirectory()}
+                    ><FolderOpen size={15} strokeWidth={2} aria-hidden="true" />Browse</button
+                  >{#if releaseDirectory}<button
+                      class="ghost-button"
+                      aria-label="Use default release folder"
+                      title="Use default release folder"
+                      on:click={() => (releaseDirectory = '')}
+                      ><X size={15} strokeWidth={2} aria-hidden="true" />Clear</button
+                    >{/if}
+                </div>
+                <small>Leave blank for the default project/version folder.</small></label
+              >
+            </div>
+            <div class="operation-picker">
+              <div>
+                <h3>Operation</h3>
+                <p>Build &amp; Package is the recommended release path.</p>
+              </div>
+              <select value={operation} on:change={(event) => setOperation(event)}
+                ><option value="release">Build &amp; Package Recommended</option><option
+                  value="build">Build Only</option
+                ><option value="package">Package Existing Build</option><option value="transfer"
+                  >Send Packages</option
+                ><option value="release-transfer">Build, Package &amp; Send</option></select
+              >
+            </div>
+            {#if selectedProject}<section class="direct-package-section">
+                {#if operation === 'transfer'}<div class="section-heading compact">
+                    <div>
+                      <h3>ZIP packages to send</h3>
+                      <p>
+                        Select local ZIP files; project and environment remain the Activity context.
+                      </p>
+                    </div>
+                    <div class="inline-actions">
+                      <button class="secondary-button" on:click={() => void addZipFiles()}
+                        ><Plus size={15} strokeWidth={2} aria-hidden="true" />Add ZIP files</button
+                      ><button class="secondary-button" on:click={() => void browsePackageFolder()}
+                        ><FolderOpen size={15} strokeWidth={2} aria-hidden="true" />Browse folder</button
+                      >
+                    </div>
+                  </div>
+                  {#if directFolder}<div class="muted package-folder-label">
+                      Folder: {directFolder}
+                    </div>{/if}{#if folderZipFiles.length}<div class="zip-picker-head">
+                      <strong>ZIP files in folder</strong><button
+                        class="text-button"
+                        on:click={selectAllZipFiles}>Select all</button
+                      >
+                    </div>
+                    <div class="zip-picker-list">
+                      {#each folderZipFiles as path}<label class="zip-picker-row"
+                          ><input
+                            type="checkbox"
+                            checked={directPackagePaths.includes(path)}
+                            on:change={() => toggleDirectPath(path)}
+                          /><span>{packageFileName(path)}</span><small>{path}</small></label
+                        >{/each}
+                    </div>{/if}
+                  <div class="selected-package-list">
+                    <div class="zip-picker-head">
+                      <strong>Selected packages ({directPackagePaths.length})</strong
+                      >{#if directPackagePaths.length}<button
+                          class="text-button"
+                          on:click={clearDirectPaths}>Clear selection</button
+                        >{/if}
+                    </div>
+                    {#each directPackagePaths as path}<div class="selected-package-row">
+                        <span><strong>{packageFileName(path)}</strong><small>{path}</small></span
+                        ><button
+                          class="ghost-button"
+                          aria-label="Remove package"
+                          on:click={() => removeDirectPath(path)}
+                          ><X size={14} strokeWidth={2} aria-hidden="true" /></button
+                        >
+                      </div>{:else}<div class="empty-state">No ZIP packages selected.</div>{/each}
+                  </div>{/if}
+              </section>
+              <section class="component-section" class:transfer-hidden={operation === 'transfer'}>
+                <div class="section-heading compact">
+                  <div>
+                    <h3>Components</h3>
+                    <p>Select the components included in this operation.</p>
+                  </div>
+                  <div class="inline-actions">
+                    <label class="compact-search"
+                      ><span class="sr-only">Filter components</span><Search
+                        size={13}
+                        strokeWidth={2}
+                        aria-hidden="true"
+                      /><input
+                        value={componentFilter}
+                        on:input={(event) => (componentFilter = inputValue(event))}
+                        placeholder="Filter"
+                      /></label
+                    ><button class="text-button" on:click={selectAllComponents}>Select all</button
+                    ><button class="text-button" on:click={selectNoComponents}>None</button>
+                  </div>
+                </div>
+                <div class="component-table">
+                  <div class="component-table-head">
+                    <span>Include</span><span>Component</span><span>Status</span><span
+                      >Packaging</span
+                    >
+                  </div>
+                  {#each selectedProject.components.filter((component) => component.name
+                      .toLowerCase()
+                      .includes(componentFilter.toLowerCase())) as component}<label
+                      class="component-table-row"
+                      ><input
+                        type="checkbox"
+                        checked={selectedComponentIds.includes(component.id)}
+                        on:change={() => toggleComponent(component)}
+                      /><strong>{component.name}</strong><span class="muted">Ready</span><span
+                        class:enabled={component.package.enabled}
+                        class="tag">{component.package.enabled ? 'Enabled' : 'Disabled'}</span
+                      ></label
+                    >{:else}<div class="empty-state">
+                      No components configured. Add one under Projects.
+                    </div>{/each}
+                </div>
+              </section>{:else}<div class="empty-state">
+                Create a project under Projects to begin a release.
+              </div>{/if}
+            <details class="advanced">
+              <summary>Advanced package naming</summary>
+              <div class="advanced-content">
+                <label class="field"
+                  ><span>Filename template</span><input
+                    value={packageTemplate}
+                    on:input={(event) => (packageTemplate = inputValue(event))}
+                    placeholder="Use component templates"
+                  /><small
+                    >Tokens: {`{project}`}
+                    {`{component}`}
+                    {`{version}`}
+                    {`{date}`}
+                    {`{time}`}
+                    {`{datetime}`}</small
+                  ></label
+                >
+              </div>
+            </details>
+            <div class="sticky-actions">
+              <button
+                class="primary-button"
+                disabled={!selectedProject ||
+                  (operation === 'transfer'
+                    ? directPackagePaths.length === 0
+                    : selectedComponentIds.length === 0) ||
+                  operationStarting}
+                on:click={continueToReview}
+                >{operationStarting ? 'Preparing' : 'Continue to Review'}
+                <ArrowRight size={15} strokeWidth={2.2} aria-hidden="true" /></button
+              >
+            </div>
+          </section>
+        {:else if step === 2}<section class="card page-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Step 2 of 3</p>
+                <h2>Review before running</h2>
+                <p>
+                  Confirm the resolved inputs. The operation will not start until you approve this
+                  plan.
+                </p>
+              </div>
+              <span class="operation-badge">{operationLabel(operation)}</span>
+            </div>
+            <div class="review-summary">
+              <div><small>Project</small><strong>{selectedProject?.name}</strong></div>
+              <div>
+                <small>Environment</small><strong
+                  >{activeEnvironment?.name ?? releaseEnvironment}</strong
+                >
+              </div>
+              <div><small>Version</small><strong>{packageVersion}</strong></div>
+              <div>
+                <small>Components</small><strong
+                  >{operation === 'transfer'
+                    ? directPackagePaths.length
+                    : selectedComponentIds.length} selected</strong
+                >
+              </div>
+            </div>
+            {#if buildReview}<div class="compact-confirm">
+                <span class="confirm-icon"
+                  ><CheckCircle2 size={17} strokeWidth={2.5} aria-hidden="true" /></span
+                >
+                <div>
+                  <h3>Build confirmation</h3>
+                  <p>
+                    Build {selectedComponentIds.length} component(s) using the {activeEnvironment?.name ??
+                      releaseEnvironment} profile. Build output will be validated before the run completes.
+                  </p>
+                </div>
+              </div>{:else if namingPlan}<div class="review-list">
+                <div class="review-list-head">
+                  <span>{operation === 'transfer' ? 'Package' : 'Component'}</span><span
+                    >{operation === 'transfer' ? 'Source path' : 'Approved filename'}</span
+                  ><span>{operation === 'transfer' ? 'Full path' : 'Release path'}</span>
+                </div>
+                {#each namingPlan.components.filter((item) => item.selected && item.enabled) as item}<div
+                    class="review-list-row"
+                  >
+                    <strong>{item.componentName}</strong>{#if operation === 'transfer'}<div>
+                        <code>{item.packagePath}</code><span class="success-text"
+                          >Ready to send</span
+                        >
+                      </div>{:else}<label
+                        ><span class="sr-only">Filename for {item.componentName}</span><input
+                          value={namingNames[item.componentId] ?? ''}
+                          on:input={(event) =>
+                            void editPackageName(item.componentId, inputValue(event))}
+                        /></label
+                      >
+                      <div>
+                        <code
+                          >{namingPlan.releaseDirectory}\{namingNames[item.componentId] ??
+                            item.resolvedFilename}</code
+                        >{#if item.existing}<span class="warning-text">Existing file conflict</span
+                          >{:else}<span class="success-text">Available</span>{/if}
+                      </div>{/if}
+                  </div>{/each}
+              </div>
+              {#if namingPlan.hasConflicts}<label class="overwrite-choice"
+                  ><input
+                    type="checkbox"
+                    checked={overwrite}
+                    on:change={(event) => (overwrite = checkedValue(event))}
+                  /><span>Allow replacement of existing files after this review</span></label
+                >{/if}{/if}{#if namingError}<div class="validation-box">{namingError}</div>{/if}
+            <div class="sticky-actions">
+              <button class="secondary-button" on:click={cancelFlow}
+                ><ArrowLeft size={15} strokeWidth={2} aria-hidden="true" /> Back to Configure</button
+              ><button
+                class="primary-button"
+                disabled={operationStarting || (!buildReview && !namingPlan)}
+                on:click={() => void confirmReview()}
+                ><Play size={15} strokeWidth={2} aria-hidden="true" />Confirm and Run</button
+              >
+            </div>
+          </section>
+        {:else}<section class="card page-card run-page">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Step 3 of 3 {operationLabel(operation)}</p>
+                <h2>{currentRun ? currentRun.projectName : 'Starting run'}</h2>
+                <p>
+                  {currentRun?.environment ?? releaseEnvironment} Version {currentRun &&
+                  'version' in currentRun
+                    ? currentRun.version
+                    : packageVersion}
+                </p>
+              </div>
+              <span
+                class:success={currentRun?.status === 'completed'}
+                class:error={currentRun?.status === 'failed' || currentRun?.status === 'cancelled'}
+                class="status-pill"
+                >{operationStarting
+                  ? 'Starting'
+                  : statusLabel(currentRun?.status ?? 'running')}</span
+              >
+            </div>
+            {#if releaseRun}<div class="progress-list">
+                {#each releaseRun.components as item}<div class="progress-row">
+                    <div>
+                      <strong>{item.componentName}</strong><small
+                        >Build: {item.buildMessage} Package: {item.packageMessage} Send: {item.transferMessage}</small
+                      >{#if item.transferResult?.command}<code class="transfer-command"
+                          >{item.transferResult.command}</code
+                        >{/if}
+                    </div>
+                    <span class="stage-tags"
+                      ><em class={`status-${item.buildStatus}`}
+                        ><svelte:component
+                          this={statusIcon(item.buildStatus)}
+                          size={14}
+                          strokeWidth={2}
+                          aria-hidden="true"
+                        />Build</em
+                      ><em class={`status-${item.packageStatus}`}
+                        ><svelte:component
+                          this={statusIcon(item.packageStatus)}
+                          size={14}
+                          strokeWidth={2}
+                          aria-hidden="true"
+                        />Package</em
+                      ><em class={`status-${item.transferStatus}`}
+                        ><svelte:component
+                          this={statusIcon(item.transferStatus)}
+                          size={14}
+                          strokeWidth={2}
+                          aria-hidden="true"
+                        />Send</em
+                      ></span
+                    >
+                  </div>{/each}
+              </div>{:else if buildRun}<div class="progress-list">
+                {#each buildRun.components as item}<div class="progress-row">
+                    <div><strong>{item.componentName}</strong><small>{item.message}</small></div>
+                    <span class={`run-state status-${item.status}`}
+                      ><svelte:component
+                        this={statusIcon(item.status)}
+                        size={14}
+                        strokeWidth={2}
+                        aria-hidden="true"
+                      />{statusLabel(item.status)}</span
+                    >
+                  </div>{/each}
+              </div>{:else if packageRun}<div class="progress-list">
+                {#each packageRun.components as item}<div class="progress-row">
+                    <div><strong>{item.componentName}</strong><small>{item.message}</small></div>
+                    <span class={`run-state status-${item.status}`}
+                      ><svelte:component
+                        this={statusIcon(item.status)}
+                        size={14}
+                        strokeWidth={2}
+                        aria-hidden="true"
+                      />{statusLabel(item.status)}</span
+                    >
+                  </div>{/each}
+              </div>{:else if transferRun}<div class="progress-list">
+                {#each transferRun.components as item}<div class="progress-row">
+                    <div>
+                      <strong>{item.componentName}</strong><small>{item.message}</small
+                      >{#if item.result?.command}<code class="transfer-command"
+                          >{item.result.command}</code
+                        >{/if}
+                    </div>
+                    <span class={`run-state status-${item.status}`}
+                      ><svelte:component
+                        this={statusIcon(item.status)}
+                        size={14}
+                        strokeWidth={2}
+                        aria-hidden="true"
+                      />{statusLabel(item.status)}</span
+                    >
+                  </div>{/each}
+              </div>{/if}{#if buildOutput.length}<details class="console-details">
+                <summary>Live console output ({buildOutput.length} lines)</summary>
+                <div class="console" aria-live="polite">
+                  {#each buildOutput as line}<div class:stderr={line.stream === 'stderr'}>
+                      <b>[{line.componentName}]</b>
+                      {line.text}
+                    </div>{/each}
+                </div>
+              </details>{/if}{#if currentRun?.status === 'running' || operationStarting}<div
+                class="run-actions"
+              >
+                <button class="danger-button" on:click={() => void cancelOperation()}
+                  ><Ban size={15} strokeWidth={2} aria-hidden="true" />Cancel run</button
+                >
+              </div>{:else if currentRun}<div class="completion-actions">
+                <button
+                  class="secondary-button"
+                  on:click={() =>
+                    rerun({
+                      runId: currentRun.id,
+                      projectId: currentRun.projectId,
+                      projectName: currentRun.projectName,
+                      environment: currentRun.environment,
+                      operation,
+                      version: 'version' in currentRun ? currentRun.version : packageVersion,
+                      componentIds: selectedComponentIds,
+                      startTime: currentRun.startTime,
+                      status: currentRun.status,
+                    })}
+                  ><RotateCcw size={15} strokeWidth={2} aria-hidden="true" />Rerun with review</button
+                ><button
+                  class="primary-button"
+                  on:click={() => {
+                    step = 1;
+                    resetRunState();
+                  }}><Play size={15} strokeWidth={2} aria-hidden="true" />Start new release</button
+                >
+              </div>{/if}
+          </section>{/if}
+      </main>
+    {:else if view === 'activity'}<main class="card page-card activity-page">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Run history</p>
+            <h2>Recent activity</h2>
+            <p>Search and review recent transfers, packages, and releases.</p>
+          </div>
+          <button class="secondary-button" on:click={() => void loadActivity()}
+            ><RefreshCw size={15} strokeWidth={2} aria-hidden="true" />Refresh</button
+          >
+        </div>
+        <div class="activity-search">
+          <Search size={15} strokeWidth={2} aria-hidden="true" /><input
+            value={activitySearch}
+            on:input={(event) => (activitySearch = inputValue(event))}
+            on:change={() => void refreshActivity()}
+            placeholder="Search run ID, project, component, error, retry, or Dali command"
+          />
+        </div>
+        <div class="filters">
+          <select
+            value={activityProject}
+            on:change={(event) => {
+              activityProject = selectValue(event);
+              void refreshActivity();
+            }}
+            ><option value="">All projects</option>{#each projects as project}<option
+                value={project.id}>{project.name}</option
+              >{/each}</select
+          ><select
+            value={activityStatus}
+            on:change={(event) => {
+              activityStatus = selectValue(event);
+              void refreshActivity();
+            }}
+            ><option value="all">All statuses</option><option value="completed">Completed</option
+            ><option value="failed">Failed</option><option value="cancelled">Cancelled</option
+            ><option value="running">Running</option></select
+          ><select
+            value={activityEnvironment}
+            on:change={(event) => {
+              activityEnvironment = selectValue(event);
+              void refreshActivity();
+            }}
+            ><option value="all">All environments</option
+            >{#each [...new Set(projects.flatMap( (project) => (project.environments ?? []).map((environment) => environment.id) ))] as environment}<option
+                value={environment}>{environment}</option
+              >{/each}</select
+          ><select
+            value={activityPageSize}
+            on:change={(event) => {
+              activityPageSize = Number(selectValue(event));
+              void refreshActivity();
+            }}
+            ><option value="10">10 per page</option><option value="25">25 per page</option><option
+              value="50">50 per page</option
+            ></select
+          >
+        </div>
+        <div class="activity-toolbar">
+          <span>{activityTotal} results{activityPageLabel()}</span>
+          <div class="inline-actions">
+            <button
+              class="secondary-button"
+              disabled={activityPage <= 1}
+              on:click={() => {
+                activityPage -= 1;
+                void loadActivity();
+              }}><ArrowLeft size={14} strokeWidth={2} aria-hidden="true" />Previous</button
+            ><button
+              class="secondary-button"
+              disabled={activityTotalPages === 0 || activityPage >= activityTotalPages}
+              on:click={() => {
+                activityPage += 1;
+                void loadActivity();
+              }}>Next<ArrowRight size={14} strokeWidth={2} aria-hidden="true" /></button
+            >
+          </div>
+        </div>
+        <div class="activity-list">
+          {#each filteredActivity as run}<article class="activity-row">
+              <div class="activity-icon">
+                <svelte:component
+                  this={statusIcon(run.status)}
+                  size={15}
+                  strokeWidth={2}
+                  aria-hidden="true"
+                />
+              </div>
+              <div class="activity-main">
+                <div>
+                  <strong>{run.projectName}</strong><span class="tag"
+                    >{run.environment || 'legacy'} · {operationFromSummary(run.operation) ===
+                    'release'
+                      ? 'Build & Package'
+                      : run.operation}</span
+                  >
+                </div>
+                <small
+                  >{activityVersion(run)}{run.componentNames?.length ?? run.componentIds.length} component(s)
+                  · Attempt {run.attempt ?? 1}{activityRetry(run)} · {new Date(
+                    run.startTime,
+                  ).toLocaleString()}</small
+                >{#if run.errorSummary}<p class="warning-text">{run.errorSummary}</p>{/if}
+                <details class="activity-details">
+                  <summary>Details</summary>{#if run.componentNames?.length}<p>
+                      <strong>Components:</strong>
+                      {run.componentNames.join(', ')}
+                    </p>{/if}{#if run.packagePaths?.length}<p>
+                      <strong>Packages:</strong>
+                      {run.packagePaths.join(', ')}
+                    </p>{/if}{#if run.command}<p>
+                      <strong>Dali command:</strong> <code>{run.command}</code>
+                    </p>{/if}{#each activityCommands(run) as entry}<p>
+                      <strong>{entry[0]}:</strong> <code>{entry[1]}</code>
+                    </p>{/each}
+                </details>
+              </div>
+              {#if run.releaseDirectory}<button
+                  class="ghost-button"
+                  on:click={() => void openReleaseFolder(run.releaseDirectory)}
+                  ><FolderOpen size={15} strokeWidth={2} aria-hidden="true" />Open folder</button
+                >{/if}<button class="secondary-button" on:click={() => rerun(run)}
+                ><RotateCcw size={15} strokeWidth={2} aria-hidden="true" />Load for review</button
+              >
+            </article>{:else}<div class="empty-state large">
+              No runs match these filters.
+            </div>{/each}
+        </div>
+      </main>
+    {:else if view === 'projects'}<main class="settings-layout">
+        <aside class="card project-list">
+          <div class="section-heading compact">
+            <h2>Projects</h2>
+            <button
+              class="icon-button"
+              title="Add project"
+              aria-label="Add project"
+              on:click={openNewProject}
+              ><Plus size={17} strokeWidth={2.2} aria-hidden="true" /></button
+            >
+          </div>
+          {#each projects as project}<button
+              class:active={settingsProject?.id === project.id}
+              class="project-list-item"
+              on:click={() => openProjectSettings(project)}
+              ><strong>{project.name}</strong><small
+                >{project.components.length} components {project.environments?.length ?? 0} environments</small
+              ></button
+            >{:else}<p class="muted">No projects yet.</p>{/each}
+        </aside>
+        <section class="card settings-editor">
+          {#if settingsProject}<div class="section-heading">
+              <div>
+                <p class="eyebrow">Project configuration</p>
+                <h2>{settingsIsNew ? 'New project' : settingsProject.name}</h2>
+              </div>
+              {#if !settingsIsNew}<button
+                  class="danger-button"
+                  on:click={() => (deleteCandidate = settingsProject)}
+                  ><Trash2 size={15} strokeWidth={2} aria-hidden="true" />Delete project</button
+                >{/if}
+            </div>
+            <div class="subnav">
+              <button
+                class:active={settingsTab === 'general'}
+                on:click={() => (settingsTab = 'general')}>General</button
+              ><button
+                class:active={settingsTab === 'components'}
+                on:click={() => (settingsTab = 'components')}>Components</button
+              ><button
+                class:active={settingsTab === 'environments'}
+                on:click={openEnvironmentProfiles}>Environment Profiles</button
+              >
+            </div>
+            {#if issues.length}<div class="validation-box">
+                {#each issues as issue}<div>{issue.field}: {issue.message}</div>{/each}
+              </div>{/if}{#if settingsTab === 'general'}<label class="field"
+                ><span>Project name</span><input
+                  value={settingsProject.name}
+                  on:input={(event) => updateProject({ name: inputValue(event) })}
+                  placeholder="LokalStore"
+                /></label
+              >
+              <div class="settings-note">
+                <strong>Project profile</strong>
+                <p>
+                  Components and environment profiles stay together so a release always makes its
+                  target explicit.
+                </p>
+              </div>{:else if settingsTab === 'components'}<div class="section-heading compact">
+                <div>
+                  <h3>Components</h3>
+                  <p>
+                    Manage components as compact rows; open details only for the component you are
+                    configuring.
+                  </p>
+                </div>
+                <div class="component-section-actions">
+                  <span class="component-count">{settingsProject.components.length} configured</span
+                  ><button class="text-button" on:click={addComponent}
+                    ><Plus size={14} strokeWidth={2} aria-hidden="true" />Add component</button
+                  >
+                </div>
+              </div>
+              <ProjectComponents
+                components={settingsProject.components}
+                editingIndex={editingComponentIndex}
+                onToggleDetails={(index) =>
+                  (editingComponentIndex = editingComponentIndex === index ? null : index)}
+                onCloseDetails={() => (editingComponentIndex = null)}
+                onRemove={removeComponent}
+                onUpdate={updateComponent}
+                onBrowsePath={(index) => void browseComponentPath(index)}
+                onBrowseOutput={(index) => void browseOutputDirectory(index)}
+              />{:else}<div class="environment-editor">
+                <div class="environment-list">
+                  <div class="section-heading compact">
+                    <h3>Profiles</h3>
+                    <button class="text-button" on:click={addEnvironment}
+                      ><Plus size={14} strokeWidth={2} aria-hidden="true" />Add</button
+                    >
+                  </div>
+                  {#each settingsProject.environments ?? [] as environment}<button
+                      class:active={selectedEnvironmentId === environment.id}
+                      class="environment-item"
+                      on:click={() => chooseSettingsEnvironment(environment.id)}
+                      ><strong>{environment.name}</strong><small
+                        >{environment.id}{settingsProject.defaultEnvironment === environment.id
+                          ? '  Default'
+                          : ''}</small
+                      ></button
+                    >{/each}
+                </div>
+                <div class="environment-detail">
+                  {#if selectedEnvironmentProfile}<div class="section-heading compact">
+                      <div>
+                        <h3>{selectedEnvironmentProfile.name || selectedEnvironmentProfile.id}</h3>
+                        <p>
+                          Commands are saved per profile and resolved in this order: profile, legacy
+                          environment, then default.
+                        </p>
+                      </div>
+                      <div class="inline-actions">
+                        <button class="text-button" on:click={duplicateEnvironment}
+                          ><Copy size={14} strokeWidth={2} aria-hidden="true" />Duplicate</button
+                        ><button class="remove-button" on:click={requestDeleteEnvironment}
+                          ><Trash2 size={14} strokeWidth={2} aria-hidden="true" />Delete</button
+                        >
+                      </div>
+                    </div>
+                    <div class="form-grid">
+                      <label class="field"
+                        ><span>Profile name</span><input
+                          value={selectedEnvironmentProfile.name}
+                          on:input={(event) => updateProfile({ name: inputValue(event) })}
+                        /></label
+                      ><label class="field"
+                        ><span>Identifier</span><input
+                          value={selectedEnvironmentProfile.id}
+                          on:change={(event) =>
+                            updateProfile(
+                              { id: inputValue(event).trim().toLowerCase() },
+                              selectedEnvironmentProfile.id,
+                            )}
+                        /></label
+                      ><label class="field"
+                        ><span>Default environment</span><select
+                          value={settingsProject.defaultEnvironment}
+                          on:change={(event) =>
+                            updateProject({ defaultEnvironment: selectValue(event) })}
+                          >{#each settingsProject.environments ?? [] as environment}<option
+                              value={environment.id}>{environment.name}</option
+                            >{/each}</select
+                        ></label
+                      >
+                    </div>
+                    <div class="command-table">
+                      <div class="command-table-head">
+                        <span>Component</span><span>Profile command</span><span
+                          >Resolved command</span
+                        ><span>Source</span>
+                      </div>
+                      {#each settingsProject.components as component}{@const resolved =
+                          resolvedEnvironmentCommand(component, selectedEnvironmentProfile.id)}
+                        <div class="command-table-row">
+                          <strong>{component.name}</strong><input
+                            value={profileCommands(selectedEnvironmentProfile)[component.id] ?? ''}
+                            on:input={(event) =>
+                              updateProfileCommand(
+                                selectedEnvironmentProfile.id,
+                                component.id,
+                                inputValue(event),
+                              )}
+                            placeholder="Uses resolved fallback"
+                          /><code class:unconfigured={!resolved.command}
+                            >{resolved.command || 'No command configured'}</code
+                          ><small>{resolved.source}</small>
+                        </div>{:else}<div class="empty-state">
+                          Add components under Components to configure environment commands.
+                        </div>{/each}
+                    </div>{:else}<div class="empty-state">
+                      Add an environment profile to configure commands.
+                    </div>{/if}
+                </div>
+              </div>{/if}
+            <div class="sticky-actions">
+              <button class="secondary-button" on:click={() => (view = 'release')}>Cancel</button
+              ><button class="primary-button" disabled={saving} on:click={() => void saveSettings()}
+                ><Save size={15} strokeWidth={2} aria-hidden="true" />{saving
+                  ? 'Saving'
+                  : 'Save project'}</button
+              >
+            </div>{:else}<div class="empty-state large">
+              Select a project or add a new one.
+            </div>{/if}
+        </section>
+      </main>
+    {:else}<main class="card page-card settings-page">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Global configuration</p>
+            <h2>Settings</h2>
+            <p>Dali remains application-wide; release environments belong to each project.</p>
+          </div>
+        </div>
+        <div class="settings-note">
+          <h3>Dali transfer</h3>
+          <p>
+            Configure the installed Dali CLI and destination behavior for Send Packages operations.
+          </p>
+        </div>
+        <div class="dali-diagnostics">
+          <div>
+            <strong>Dali availability</strong>{#if daliChecking}<span class="muted">Checking</span
+              >{:else if daliAvailability?.available}<span class="diagnostic-status available"
+                >Available</span
+              ><small>{daliAvailability.resolvedExecutable}</small>{:else}<span
+                class="diagnostic-status missing">Not found</span
+              ><small>{daliAvailability?.error ?? 'Availability has not been checked yet.'}</small
+              >{/if}
+          </div>
+          <div class="inline-actions">
+            <button
+              class="secondary-button"
+              disabled={daliChecking}
+              on:click={() => void checkDali()}
+              ><RefreshCw size={14} strokeWidth={2} aria-hidden="true" />Check now</button
+            >{#if daliAvailability && !daliAvailability.available}<button
+                class="text-button"
+                on:click={() => void OpenExternalURL(daliAvailability?.releaseUrl ?? '')}
+                >Dali releases</button
+              >{/if}
+          </div>
+          {#if daliAvailability && !daliAvailability.available}<p>
+              Install with <code>{daliAvailability.installCommand}</code>
+            </p>{/if}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <span>Dali executable</span>
+            <div class="input-action">
+              <input
+                value={daliConfig.executable}
+                on:input={(event) =>
+                  (daliConfig = { ...daliConfig, executable: inputValue(event) })}
+              /><button class="secondary-button" on:click={() => void browseDaliExecutable()}
+                ><FolderOpen size={15} strokeWidth={2} aria-hidden="true" />Browse</button
+              >
+            </div>
+          </div>
+          <label class="field"
+            ><span>Peer name</span><input
+              value={daliConfig.peerName}
+              on:input={(event) =>
+                (daliConfig = { ...daliConfig, peerName: inputValue(event), peerAddress: '' })}
+            /></label
+          ><label class="field"
+            ><span>Peer address</span><input
+              value={daliConfig.peerAddress}
+              on:input={(event) =>
+                (daliConfig = { ...daliConfig, peerAddress: inputValue(event), peerName: '' })}
+            /></label
+          ><label class="field checkbox-field"
+            ><input
+              type="checkbox"
+              checked={daliConfig.auto}
+              on:change={(event) => (daliConfig = { ...daliConfig, auto: checkedValue(event) })}
+            /><span>Auto-select a single peer</span></label
+          ><label class="field checkbox-field"
+            ><input
+              type="checkbox"
+              checked={daliConfig.wait}
+              on:change={(event) => (daliConfig = { ...daliConfig, wait: checkedValue(event) })}
+            /><span>Wait for discovery timeout</span></label
+          >
+        </div>
+        <div class="sticky-actions">
+          <button
+            class="primary-button"
+            disabled={daliSaving}
+            on:click={() => void saveDaliSettings()}
+            ><Save size={15} strokeWidth={2} aria-hidden="true" />{daliSaving
+              ? 'Saving'
+              : 'Save settings'}</button
+          >
+        </div>
+      </main>{/if}
   </div>
-  {#if deleteCandidate}<div class="dialog-backdrop"><div class="dialog" role="dialog" aria-modal="true"><p class="eyebrow">Delete project</p><h2>Delete {deleteCandidate.name}?</h2><p>This removes the project and its component configuration. The action cannot be undone from the workspace.</p><div class="dialog-actions"><button class="secondary-button" on:click={() => (deleteCandidate = null)}><X size={15} strokeWidth={2} aria-hidden="true" />Cancel</button><button class="danger-button" on:click={() => void confirmDeleteProject()}><Trash2 size={15} strokeWidth={2} aria-hidden="true" />Delete project</button></div></div></div>{/if}{#if environmentDeleteCandidate}<div class="dialog-backdrop"><div class="dialog" role="dialog" aria-modal="true"><p class="eyebrow">Delete environment profile</p><h2>Delete {environmentDeleteCandidate.name}?</h2><p>{settingsProject?.defaultEnvironment === environmentDeleteCandidate.id ? "This is the project default. Deleting it will switch the default to another profile." : "This removes the profile from this project."}</p><div class="dialog-actions"><button class="secondary-button" on:click={() => (environmentDeleteCandidate = null)}><X size={15} strokeWidth={2} aria-hidden="true" />Cancel</button><button class="danger-button" on:click={deleteEnvironment}><Trash2 size={15} strokeWidth={2} aria-hidden="true" />Delete profile</button></div></div></div>{/if}
+  {#if deleteCandidate}<div class="dialog-backdrop">
+      <div class="dialog" role="dialog" aria-modal="true">
+        <p class="eyebrow">Delete project</p>
+        <h2>Delete {deleteCandidate.name}?</h2>
+        <p>
+          This removes the project and its component configuration. The action cannot be undone from
+          the workspace.
+        </p>
+        <div class="dialog-actions">
+          <button class="secondary-button" on:click={() => (deleteCandidate = null)}
+            ><X size={15} strokeWidth={2} aria-hidden="true" />Cancel</button
+          ><button class="danger-button" on:click={() => void confirmDeleteProject()}
+            ><Trash2 size={15} strokeWidth={2} aria-hidden="true" />Delete project</button
+          >
+        </div>
+      </div>
+    </div>{/if}{#if environmentDeleteCandidate}<div class="dialog-backdrop">
+      <div class="dialog" role="dialog" aria-modal="true">
+        <p class="eyebrow">Delete environment profile</p>
+        <h2>Delete {environmentDeleteCandidate.name}?</h2>
+        <p>
+          {settingsProject?.defaultEnvironment === environmentDeleteCandidate.id
+            ? 'This is the project default. Deleting it will switch the default to another profile.'
+            : 'This removes the profile from this project.'}
+        </p>
+        <div class="dialog-actions">
+          <button class="secondary-button" on:click={() => (environmentDeleteCandidate = null)}
+            ><X size={15} strokeWidth={2} aria-hidden="true" />Cancel</button
+          ><button class="danger-button" on:click={deleteEnvironment}
+            ><Trash2 size={15} strokeWidth={2} aria-hidden="true" />Delete profile</button
+          >
+        </div>
+      </div>
+    </div>{/if}
 </div>

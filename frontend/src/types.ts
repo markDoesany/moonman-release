@@ -46,8 +46,21 @@ export type RunSummary = {
   daliCommands?: Record<string, string>;
 };
 
-export type ActivityQuery = { projectId?: string; environment?: string; status?: string; search?: string; page: number; pageSize: number };
-export type ActivityPage = { runs: RunSummary[]; page: number; pageSize: number; total: number; totalPages: number };
+export type ActivityQuery = {
+  projectId?: string;
+  environment?: string;
+  status?: string;
+  search?: string;
+  page: number;
+  pageSize: number;
+};
+export type ActivityPage = {
+  runs: RunSummary[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+};
 
 export type RetryStage = 'build' | 'package' | 'transfer';
 export type RetryRequest = { runId: string; stage: RetryStage; componentIds?: string[] };
@@ -159,7 +172,14 @@ export type DaliConfig = {
   auto: boolean;
   wait: boolean;
 };
-export type DaliAvailability = { available: boolean; configuredExecutable: string; resolvedExecutable: string; error?: string; installCommand: string; releaseUrl: string };
+export type DaliAvailability = {
+  available: boolean;
+  configuredExecutable: string;
+  resolvedExecutable: string;
+  error?: string;
+  installCommand: string;
+  releaseUrl: string;
+};
 
 export type TransferStatus = 'ready' | 'sending' | 'success' | 'failed' | 'skipped' | 'cancelled';
 export type TransferRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';

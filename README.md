@@ -71,7 +71,21 @@ cd frontend
 npm install
 npm run check
 npm run build
+npm run format:check
 ```
+
+## Code organization and formatting
+
+The backend is organized by responsibility under `backend/`: configuration and persistence, domain models, logging, build/package/transfer engines, and the Wails application boundary. The frontend keeps Wails calls in `src/backend.ts`, shared data contracts in `src/types.ts`, reusable UI in `src/components/`, and pure project helpers in `src/lib/`.
+
+Run the formatter before committing frontend changes:
+
+```powershell
+cd frontend
+npm run format
+```
+
+Use `npm run format:check` in CI or during review. Go files must remain `gofmt`-clean; the complete verification set is `go test ./...`, `go vet ./...`, `npm run format:check`, `npm run check`, and `npm run build`.
 
 ## Build the Windows executable
 
