@@ -132,7 +132,21 @@ func (a *App) RetryRun(request models.RetryRequest) (models.RetryRun, error) {
 			return models.RetryRun{}, err
 		}
 		runRequest := cloneTransferRequest(*previous.transferRequest)
-		runRequest.ComponentIDs = ids
+		if len(runRequest.PackagePaths) > 0 && len(ids) > 0 {
+			selected := make(map[string]bool, len(ids))
+			for _, id := range ids {
+				selected[id] = true
+			}
+			paths := make([]string, 0, len(runRequest.PackagePaths))
+			for _, path := range runRequest.PackagePaths {
+				if selected[path] {
+					paths = append(paths, path)
+				}
+			}
+			runRequest.PackagePaths = paths
+		} else {
+			runRequest.ComponentIDs = ids
+		}
 		plan, err := a.transfer.PlanRequest(previous.project, runRequest)
 		if err != nil {
 			return models.RetryRun{}, err
@@ -147,7 +161,9 @@ func (a *App) RetryRun(request models.RetryRequest) (models.RetryRun, error) {
 		ctx, cancel, done := a.beginActiveRunLocked(run.ID)
 		go func() {
 			finalRun := a.transfer.Execute(ctx, run, previous.project, runRequest, settings, a.eventSink(eventContext))
-			a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "transfer", ComponentIDs: runRequest.ComponentIDs, Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: runRequest.FilenameTemplate, ApprovedPackageNames: runRequest.PackageNames, ReleaseDirectory: plan.ReleaseDirectory, RetryOfRunID: previous.runID, Attempt: attempt, RetryStage: string(request.Stage)})
+			summary := models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "transfer", ComponentIDs: runRequest.ComponentIDs, PackagePaths: append([]string(nil), runRequest.PackagePaths...), Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: runRequest.FilenameTemplate, ApprovedPackageNames: runRequest.PackageNames, ReleaseDirectory: plan.ReleaseDirectory, RetryOfRunID: previous.runID, Attempt: attempt, RetryStage: string(request.Stage)}
+			a.addTransferSummaryDetails(&summary, finalRun)
+			a.recordRun(summary)
 			a.rememberRetryContext(retryContext{operation: "transfer", project: previous.project, transferRequest: &runRequest, transferRun: &finalRun, runID: finalRun.ID, attempt: attempt})
 			a.finishActiveRun(run.ID, cancel, done)
 		}()
@@ -268,6 +284,7 @@ func cloneTransferRequest(request models.TransferRequest) models.TransferRequest
 		request.PackageNames = mapsClone(request.PackageNames)
 	}
 	request.ComponentIDs = append([]string(nil), request.ComponentIDs...)
+	request.PackagePaths = append([]string(nil), request.PackagePaths...)
 	return request
 }
 

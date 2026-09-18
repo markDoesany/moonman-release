@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -111,19 +112,34 @@ func (a *App) GetProject(id string) (models.Project, error) {
 
 // GetRecentRuns returns durable release activity, newest first.
 func (a *App) GetRecentRuns(projectID string, limit int) ([]models.RunSummary, error) {
-	paths, err := config.ResolvePaths()
+	page := models.ActivityQuery{ProjectID: projectID, Page: 1, PageSize: limit}
+	if limit <= 0 {
+		page.PageSize = 100
+	}
+	result, err := a.GetRecentRunsPage(page)
 	if err != nil {
 		return nil, err
 	}
+	return result.Runs, nil
+}
+
+// GetRecentRunsPage returns filtered activity without requiring the frontend to load all history.
+func (a *App) GetRecentRunsPage(query models.ActivityQuery) (models.ActivityPage, error) {
+	paths, err := config.ResolvePaths()
+	if err != nil {
+		return models.ActivityPage{}, err
+	}
 	contents, err := os.ReadFile(paths.ActivityLogFile)
 	if errors.Is(err, os.ErrNotExist) {
-		return []models.RunSummary{}, nil
+		query = normalizeActivityQuery(query)
+		return models.ActivityPage{Runs: []models.RunSummary{}, Page: query.Page, PageSize: query.PageSize}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read activity history: %w", err)
+		return models.ActivityPage{}, fmt.Errorf("read activity history: %w", err)
 	}
+	query = normalizeActivityQuery(query)
 	lines := strings.Split(string(contents), "\n")
-	result := make([]models.RunSummary, 0)
+	all := make([]models.RunSummary, 0)
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := strings.TrimSpace(lines[i])
 		if line == "" {
@@ -133,15 +149,70 @@ func (a *App) GetRecentRuns(projectID string, limit int) ([]models.RunSummary, e
 		if err := json.Unmarshal([]byte(line), &summary); err != nil {
 			continue
 		}
-		if strings.TrimSpace(projectID) != "" && summary.ProjectID != projectID {
+		if query.ProjectID != "" && summary.ProjectID != query.ProjectID {
 			continue
 		}
-		result = append(result, summary)
-		if limit > 0 && len(result) >= limit {
-			break
+		if query.Environment != "" && query.Environment != "all" && !strings.EqualFold(summary.Environment, query.Environment) {
+			continue
+		}
+		if query.Status != "" && query.Status != "all" && !strings.EqualFold(summary.Status, query.Status) {
+			continue
+		}
+		if query.Search != "" && !activityMatches(summary, query.Search) {
+			continue
+		}
+		all = append(all, summary)
+	}
+	pageCount := 0
+	if len(all) > 0 {
+		pageCount = (len(all) + query.PageSize - 1) / query.PageSize
+	}
+	start := (query.Page - 1) * query.PageSize
+	if start > len(all) {
+		start = len(all)
+	}
+	end := start + query.PageSize
+	if end > len(all) {
+		end = len(all)
+	}
+	runs := all[start:end]
+	if runs == nil {
+		runs = []models.RunSummary{}
+	}
+	return models.ActivityPage{Runs: runs, Page: query.Page, PageSize: query.PageSize, Total: len(all), TotalPages: pageCount}, nil
+}
+
+func normalizeActivityQuery(query models.ActivityQuery) models.ActivityQuery {
+	if query.Page < 1 {
+		query.Page = 1
+	}
+	if query.PageSize <= 0 {
+		query.PageSize = 10
+	}
+	if query.PageSize > 500 {
+		query.PageSize = 500
+	}
+	query.ProjectID = strings.TrimSpace(query.ProjectID)
+	query.Environment = strings.TrimSpace(query.Environment)
+	query.Status = strings.TrimSpace(query.Status)
+	query.Search = strings.ToLower(strings.TrimSpace(query.Search))
+	return query
+}
+
+func activityMatches(summary models.RunSummary, query string) bool {
+	values := []string{summary.RunID, summary.ProjectID, summary.ProjectName, summary.Environment, summary.Operation, summary.Version, summary.ErrorSummary, summary.RetryOfRunID, summary.RetryStage, summary.Command, fmt.Sprint(summary.Attempt)}
+	values = append(values, summary.ComponentIDs...)
+	values = append(values, summary.ComponentNames...)
+	values = append(values, summary.PackagePaths...)
+	for key, command := range summary.DaliCommands {
+		values = append(values, key, command)
+	}
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), query) {
+			return true
 		}
 	}
-	return result, nil
+	return false
 }
 
 // SaveProject creates or updates a project and returns the canonical saved value.
@@ -177,6 +248,18 @@ func (a *App) GetDaliConfig() (models.DaliConfig, error) {
 		return models.DaliConfig{}, fmt.Errorf("configuration unavailable: %w", a.loadErr)
 	}
 	return a.config.DaliConfig()
+}
+
+// CheckDaliAvailability resolves the configured executable without starting it.
+func (a *App) CheckDaliAvailability() (models.DaliAvailability, error) {
+	if a.loadErr != nil {
+		return models.DaliAvailability{}, fmt.Errorf("configuration unavailable: %w", a.loadErr)
+	}
+	settings, err := a.config.DaliConfig()
+	if err != nil {
+		return models.DaliAvailability{}, err
+	}
+	return a.transfer.CheckDaliAvailability(settings), nil
 }
 
 // SaveDaliConfig persists the global Dali transfer settings.
@@ -218,6 +301,50 @@ func (a *App) PickFile(initialPath string) (string, error) {
 	return runtime.OpenFileDialog(ctx, options)
 }
 
+// PickFiles opens a native multi-select picker limited to ZIP files.
+func (a *App) PickFiles(initialPath string) ([]string, error) {
+	ctx := a.runtimeCtx
+	if ctx == nil {
+		return nil, errors.New("native dialogs are unavailable before application startup")
+	}
+	options := runtime.OpenDialogOptions{Title: "Select ZIP packages", Filters: []runtime.FileFilter{{DisplayName: "ZIP packages", Pattern: "*.zip"}}}
+	options.DefaultDirectory = dialogDirectory(initialPath)
+	paths, err := runtime.OpenMultipleFilesDialog(ctx, options)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeZipSelections(paths)
+}
+
+// ListZipFiles lists only regular, top-level ZIP files in a directory.
+func (a *App) ListZipFiles(directory string) ([]string, error) {
+	directory = filepath.Clean(strings.TrimSpace(directory))
+	if directory == "." || directory == "" {
+		return nil, errors.New("package folder is empty")
+	}
+	info, err := os.Stat(directory)
+	if err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("package folder does not exist: %s", directory)
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return nil, fmt.Errorf("read package folder: %w", err)
+	}
+	result := make([]string, 0)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".zip") {
+			continue
+		}
+		path := filepath.Join(directory, entry.Name())
+		fileInfo, statErr := os.Stat(path)
+		if statErr == nil && fileInfo.Mode().IsRegular() {
+			result = append(result, path)
+		}
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
 // OpenReleaseFolder opens a local release directory in the host file manager.
 func (a *App) OpenReleaseFolder(path string) error {
 	path = filepath.Clean(strings.TrimSpace(path))
@@ -230,7 +357,19 @@ func (a *App) OpenReleaseFolder(path string) error {
 	if a.runtimeCtx == nil {
 		return errors.New("native folder actions are unavailable before application startup")
 	}
-	runtime.BrowserOpenURL(a.runtimeCtx, "file:///"+filepath.ToSlash(path))
+	return openReleaseFolderNative(path)
+}
+
+// OpenExternalURL opens a documentation or release URL in the default browser.
+func (a *App) OpenExternalURL(url string) error {
+	url = strings.TrimSpace(url)
+	if url == "" || !(strings.HasPrefix(url, "https://") || strings.HasPrefix(url, "http://")) {
+		return errors.New("external URL must use http or https")
+	}
+	if a.runtimeCtx == nil {
+		return errors.New("external links are unavailable before application startup")
+	}
+	runtime.BrowserOpenURL(a.runtimeCtx, url)
 	return nil
 }
 
@@ -246,6 +385,31 @@ func dialogDirectory(value string) string {
 		return filepath.Dir(value)
 	}
 	return ""
+}
+
+func normalizeZipSelections(paths []string) ([]string, error) {
+	result := make([]string, 0, len(paths))
+	seen := make(map[string]bool, len(paths))
+	for _, value := range paths {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		absolute, err := filepath.Abs(value)
+		if err != nil {
+			return nil, fmt.Errorf("resolve selected package: %w", err)
+		}
+		absolute = filepath.Clean(absolute)
+		info, err := os.Stat(absolute)
+		if err != nil || !info.Mode().IsRegular() || !strings.EqualFold(filepath.Ext(absolute), ".zip") {
+			return nil, fmt.Errorf("selected file is not a ZIP package: %s", absolute)
+		}
+		if !seen[absolute] {
+			seen[absolute] = true
+			result = append(result, absolute)
+		}
+	}
+	return result, nil
 }
 
 // GetPackagePlan calculates output paths and overwrite conflicts without writing files.
@@ -371,7 +535,9 @@ func (a *App) StartTransfer(request models.TransferRequest) (models.TransferRun,
 		} else {
 			a.logger.Error(fmt.Sprintf("Dali transfer failed: %s", project.Name))
 		}
-		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "transfer", ComponentIDs: request.ComponentIDs, Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory, Attempt: 1})
+		summary := models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "transfer", ComponentIDs: request.ComponentIDs, PackagePaths: append([]string(nil), request.PackagePaths...), Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory, Attempt: 1}
+		a.addTransferSummaryDetails(&summary, finalRun)
+		a.recordRun(summary)
 		retryRequest := cloneTransferRequest(request)
 		a.rememberRetryContext(retryContext{operation: "transfer", project: project, transferRequest: &retryRequest, transferRun: &finalRun, runID: finalRun.ID, attempt: 1})
 		a.releaseRun(run.ID, done)
@@ -471,7 +637,9 @@ func (a *App) StartBuildPackageAndSend(request models.PackageRequest) (models.Re
 		} else {
 			a.logger.Error(fmt.Sprintf("Build, package, and Dali transfer failed: %s", project.Name))
 		}
-		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "build-package-send", ComponentIDs: request.ComponentIDs, Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory, Attempt: 1})
+		summary := models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "build-package-send", ComponentIDs: request.ComponentIDs, Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory, Attempt: 1}
+		a.addReleaseTransferSummaryDetails(&summary, finalRun)
+		a.recordRun(summary)
 		retryRequest := clonePackageRequest(request)
 		a.rememberRetryContext(retryContext{operation: "release-transfer", project: project, packageRequest: &retryRequest, releaseRun: &finalRun, runID: finalRun.ID, attempt: 1})
 		a.releaseRun(run.ID, done)
@@ -545,8 +713,68 @@ func (a *App) recordRun(summary models.RunSummary) {
 	if a.activity == nil {
 		return
 	}
+	if len(summary.ComponentNames) == 0 {
+		if a.config != nil {
+			if project, err := a.config.Project(summary.ProjectID); err == nil {
+				for _, id := range summary.ComponentIDs {
+					for _, component := range project.Components {
+						if component.ID == id {
+							summary.ComponentNames = append(summary.ComponentNames, component.Name)
+							break
+						}
+					}
+				}
+			}
+		}
+		for _, path := range summary.PackagePaths {
+			summary.ComponentNames = append(summary.ComponentNames, filepath.Base(path))
+		}
+	}
 	if err := a.activity.Append(summary); err != nil && a.logger != nil {
 		a.logger.Error("Activity history could not be written: " + err.Error())
+	}
+}
+
+func (a *App) addTransferSummaryDetails(summary *models.RunSummary, run models.TransferRun) {
+	commands := make(map[string]string)
+	for _, state := range run.Components {
+		if state.Result == nil {
+			continue
+		}
+		if summary.Command == "" {
+			summary.Command = state.Result.Command
+		}
+		key := state.ComponentID
+		if key == "" {
+			key = state.ComponentName
+		}
+		if state.Result.Command != "" {
+			commands[key] = state.Result.Command
+		}
+		if state.ComponentName != "" {
+			summary.ComponentNames = append(summary.ComponentNames, state.ComponentName)
+		}
+	}
+	if len(commands) > 0 {
+		summary.DaliCommands = commands
+	}
+}
+
+func (a *App) addReleaseTransferSummaryDetails(summary *models.RunSummary, run models.ReleaseRun) {
+	commands := make(map[string]string)
+	for _, state := range run.Components {
+		if state.TransferResult == nil {
+			continue
+		}
+		if summary.Command == "" {
+			summary.Command = state.TransferResult.Command
+		}
+		if state.TransferResult.Command != "" {
+			commands[state.ComponentID] = state.TransferResult.Command
+		}
+	}
+	if len(commands) > 0 {
+		summary.DaliCommands = commands
 	}
 }
 

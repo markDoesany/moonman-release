@@ -10,6 +10,10 @@ export function CancelBuild(arg1) {
   return window['go']['app']['App']['CancelBuild'](arg1);
 }
 
+export function CheckDaliAvailability() {
+  return window['go']['app']['App']['CheckDaliAvailability']();
+}
+
 export function DeleteProject(arg1) {
   return window['go']['app']['App']['DeleteProject'](arg1);
 }
@@ -34,8 +38,20 @@ export function GetRecentRuns(arg1, arg2) {
   return window['go']['app']['App']['GetRecentRuns'](arg1, arg2);
 }
 
+export function GetRecentRunsPage(arg1) {
+  return window['go']['app']['App']['GetRecentRunsPage'](arg1);
+}
+
 export function GetTransferPlan(arg1) {
   return window['go']['app']['App']['GetTransferPlan'](arg1);
+}
+
+export function ListZipFiles(arg1) {
+  return window['go']['app']['App']['ListZipFiles'](arg1);
+}
+
+export function OpenExternalURL(arg1) {
+  return window['go']['app']['App']['OpenExternalURL'](arg1);
 }
 
 export function OpenReleaseFolder(arg1) {
@@ -48,6 +64,10 @@ export function PickDirectory(arg1) {
 
 export function PickFile(arg1) {
   return window['go']['app']['App']['PickFile'](arg1);
+}
+
+export function PickFiles(arg1) {
+  return window['go']['app']['App']['PickFiles'](arg1);
 }
 
 export function RetryRun(arg1) {

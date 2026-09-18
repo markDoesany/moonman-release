@@ -7,7 +7,12 @@ import {
   GetProject as generatedGetProject,
   GetProjects as generatedGetProjects,
   GetRecentRuns as generatedGetRecentRuns,
+  GetRecentRunsPage as generatedGetRecentRunsPage,
+  CheckDaliAvailability as generatedCheckDaliAvailability,
+  ListZipFiles as generatedListZipFiles,
+  OpenExternalURL as generatedOpenExternalURL,
   OpenReleaseFolder as generatedOpenReleaseFolder,
+  PickFiles as generatedPickFiles,
   PickDirectory as generatedPickDirectory,
   PickFile as generatedPickFile,
   SaveDaliConfig as generatedSaveDaliConfig,
@@ -20,7 +25,7 @@ import {
   RetryRun as generatedRetryRun,
   ValidateProject as generatedValidateProject,
 } from '../wailsjs/go/app/App';
-import type { BuildRequest, BuildRun, DaliConfig, PackagePlan, PackageRequest, PackageRun, Project, ReleaseRun, RetryRequest, RetryRunResult, RunSummary, TransferPlan, TransferRequest, TransferRun, ValidationIssue } from './types';
+import type { ActivityPage, ActivityQuery, BuildRequest, BuildRun, DaliAvailability, DaliConfig, PackagePlan, PackageRequest, PackageRun, Project, ReleaseRun, RetryRequest, RetryRunResult, RunSummary, TransferPlan, TransferRequest, TransferRun, ValidationIssue } from './types';
 
 export const CancelBuild = generatedCancelBuild;
 export const DeleteProject = generatedDeleteProject;
@@ -30,7 +35,12 @@ export const GetTransferPlan = (request: TransferRequest): Promise<TransferPlan>
 export const GetProject = (id: string): Promise<Project> => generatedGetProject(id) as Promise<Project>;
 export const GetProjects = (): Promise<Project[]> => generatedGetProjects() as Promise<Project[]>;
 export const GetRecentRuns = (projectId: string, limit: number): Promise<RunSummary[]> => generatedGetRecentRuns(projectId, limit) as Promise<RunSummary[]>;
+export const GetRecentRunsPage = (query: ActivityQuery): Promise<ActivityPage> => generatedGetRecentRunsPage(query as unknown as Parameters<typeof generatedGetRecentRunsPage>[0]) as Promise<ActivityPage>;
+export const CheckDaliAvailability = (): Promise<DaliAvailability> => generatedCheckDaliAvailability() as Promise<DaliAvailability>;
+export const ListZipFiles = (directory: string): Promise<string[]> => generatedListZipFiles(directory) as Promise<string[]>;
+export const OpenExternalURL = (url: string): Promise<void> => generatedOpenExternalURL(url);
 export const OpenReleaseFolder = (path: string): Promise<void> => generatedOpenReleaseFolder(path);
+export const PickFiles = (initialPath: string): Promise<string[]> => generatedPickFiles(initialPath);
 export const PickDirectory = (initialPath: string): Promise<string> => generatedPickDirectory(initialPath);
 export const PickFile = (initialPath: string): Promise<string> => generatedPickFile(initialPath);
 export const SaveProject = (project: Project): Promise<Project> => generatedSaveProject(project as unknown as Parameters<typeof generatedSaveProject>[0]) as Promise<Project>;

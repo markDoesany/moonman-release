@@ -11,6 +11,15 @@ type DaliConfig struct {
 	Wait        bool   `yaml:"wait" json:"wait"`
 }
 
+type DaliAvailability struct {
+	Available            bool   `json:"available"`
+	ConfiguredExecutable string `json:"configuredExecutable"`
+	ResolvedExecutable   string `json:"resolvedExecutable"`
+	Error                string `json:"error,omitempty"`
+	InstallCommand       string `json:"installCommand"`
+	ReleaseURL           string `json:"releaseUrl"`
+}
+
 // DefaultDaliConfig is safe for a one-peer local network and matches the Dali CLI name.
 func DefaultDaliConfig() DaliConfig {
 	return DaliConfig{Executable: "dali", Auto: true}
@@ -45,6 +54,7 @@ type TransferRequest struct {
 	PackageNames     map[string]string `json:"packageNames,omitempty"`
 	Environment      string            `json:"environment,omitempty"`
 	ReleaseDirectory string            `json:"releaseDirectory,omitempty"`
+	PackagePaths     []string          `json:"packagePaths,omitempty"`
 }
 
 // TransferPlanItem describes the archive that will be sent.
@@ -105,6 +115,7 @@ type TransferResult struct {
 	ResolvedFilename string         `json:"resolvedFilename,omitempty"`
 	Executable       string         `json:"executable"`
 	Arguments        []string       `json:"arguments"`
+	Command          string         `json:"command"`
 	PeerName         string         `json:"peerName,omitempty"`
 	PeerAddress      string         `json:"peerAddress,omitempty"`
 	ExitCode         int            `json:"exitCode"`
@@ -127,6 +138,7 @@ type TransferRecord struct {
 	ResolvedFilename string         `json:"resolvedFilename,omitempty"`
 	Executable       string         `json:"executable"`
 	Arguments        []string       `json:"arguments"`
+	Command          string         `json:"command"`
 	PeerName         string         `json:"peerName,omitempty"`
 	PeerAddress      string         `json:"peerAddress,omitempty"`
 	ExitCode         int            `json:"exitCode"`

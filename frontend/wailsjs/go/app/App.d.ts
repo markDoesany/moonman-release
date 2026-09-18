@@ -6,6 +6,8 @@ export function BuildRunning():Promise<boolean>;
 
 export function CancelBuild(arg1:string):Promise<void>;
 
+export function CheckDaliAvailability():Promise<models.DaliAvailability>;
+
 export function DeleteProject(arg1:string):Promise<void>;
 
 export function GetDaliConfig():Promise<models.DaliConfig>;
@@ -18,13 +20,21 @@ export function GetProjects():Promise<Array<models.Project>>;
 
 export function GetRecentRuns(arg1:string,arg2:number):Promise<Array<models.RunSummary>>;
 
+export function GetRecentRunsPage(arg1:models.ActivityQuery):Promise<models.ActivityPage>;
+
 export function GetTransferPlan(arg1:models.TransferRequest):Promise<models.TransferPlan>;
+
+export function ListZipFiles(arg1:string):Promise<Array<string>>;
+
+export function OpenExternalURL(arg1:string):Promise<void>;
 
 export function OpenReleaseFolder(arg1:string):Promise<void>;
 
 export function PickDirectory(arg1:string):Promise<string>;
 
 export function PickFile(arg1:string):Promise<string>;
+
+export function PickFiles(arg1:string):Promise<Array<string>>;
 
 export function RetryRun(arg1:models.RetryRequest):Promise<models.RetryRun>;
 

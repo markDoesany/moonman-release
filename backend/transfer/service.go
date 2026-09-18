@@ -103,6 +103,11 @@ type Service struct {
 	lookPath func(string) (string, error)
 }
 
+const (
+	daliInstallCommand = "go install github.com/zeroibot/dali@latest"
+	daliReleaseURL     = "https://github.com/zeroibot/dali/releases"
+)
+
 func NewService(logger *logging.Logger, history *logging.JSONLWriter, packager *packaging.Service) *Service {
 	return &Service{logger: logger, history: history, packager: packager, runner: commandRunner{}, lookPath: exec.LookPath}
 }
@@ -114,12 +119,56 @@ func newServiceWithRunner(logger *logging.Logger, history *logging.JSONLWriter, 
 	return service
 }
 
+func (s *Service) CheckDaliAvailability(settings models.DaliConfig) models.DaliAvailability {
+	configured := strings.TrimSpace(settings.Executable)
+	if configured == "" {
+		configured = models.DefaultDaliConfig().Executable
+	}
+	availability := models.DaliAvailability{ConfiguredExecutable: configured, InstallCommand: daliInstallCommand, ReleaseURL: daliReleaseURL}
+	resolved, err := s.lookPath(configured)
+	if err == nil {
+		availability.Available = true
+		availability.ResolvedExecutable = resolved
+		return availability
+	}
+	availability.Error = fmt.Sprintf("Dali executable %q was not found on PATH or at the configured location.", configured)
+	return availability
+}
+
 // Plan resolves packaged artifacts and reports any files that are not ready to send.
 func (s *Service) Plan(project models.Project, componentIDs []string, version string) (models.TransferPlan, error) {
 	return s.PlanRequest(project, models.TransferRequest{ProjectID: project.ID, ComponentIDs: componentIDs, Version: version})
 }
 
 func (s *Service) PlanRequest(project models.Project, request models.TransferRequest) (models.TransferPlan, error) {
+	if len(request.PackagePaths) > 0 {
+		paths, err := normalizeDirectPackagePaths(request.PackagePaths)
+		if err != nil {
+			return models.TransferPlan{}, err
+		}
+		items := make([]models.TransferPlanItem, 0, len(paths))
+		hasMissing := false
+		releaseDirectory := ""
+		for _, packagePath := range paths {
+			if releaseDirectory == "" {
+				releaseDirectory = filepath.Dir(packagePath)
+			}
+			item := models.TransferPlanItem{ComponentID: packagePath, ComponentName: filepath.Base(packagePath), Selected: true, Enabled: true, PackagePath: packagePath, ResolvedFilename: filepath.Base(packagePath)}
+			info, statErr := os.Stat(packagePath)
+			switch {
+			case statErr != nil || !info.Mode().IsRegular():
+				item.Error = "Package file does not exist."
+				hasMissing = true
+			case !strings.EqualFold(filepath.Ext(packagePath), ".zip"):
+				item.Error = "Selected package is not a .zip file."
+				hasMissing = true
+			default:
+				item.Exists = true
+			}
+			items = append(items, item)
+		}
+		return models.TransferPlan{ProjectID: project.ID, ProjectName: project.Name, Version: request.Version, ReleaseDirectory: releaseDirectory, Components: items, HasMissing: hasMissing}, nil
+	}
 	packagePlan, err := s.packager.PlanRequest(project, models.PackageRequest{ProjectID: project.ID, ComponentIDs: request.ComponentIDs, Version: request.Version, FilenameTemplate: request.FilenameTemplate, PackageNames: request.PackageNames, ReleaseDirectory: request.ReleaseDirectory})
 	if err != nil {
 		return models.TransferPlan{}, err
@@ -158,22 +207,28 @@ func (s *Service) PrepareRun(runID string, project models.Project, request model
 	if plan.HasMissing {
 		return models.TransferRun{}, errors.New("one or more selected packages do not exist")
 	}
-	selected := make(map[string]bool, len(request.ComponentIDs))
-	for _, id := range request.ComponentIDs {
-		selected[strings.TrimSpace(id)] = true
-	}
-	states := make([]models.TransferComponentState, 0, len(project.Components))
-	for _, component := range project.Components {
-		status := models.TransferStatusReady
-		message := "Ready"
-		if !selected[component.ID] {
-			status = models.TransferStatusSkipped
-			message = "Not selected"
-		} else if !component.Package.Enabled {
-			status = models.TransferStatusSkipped
-			message = "Packaging disabled"
+	states := make([]models.TransferComponentState, 0, len(plan.Components))
+	if len(request.PackagePaths) > 0 {
+		for _, item := range plan.Components {
+			states = append(states, models.TransferComponentState{ComponentID: item.ComponentID, ComponentName: item.ComponentName, Selected: true, Status: models.TransferStatusReady, Message: "Ready"})
 		}
-		states = append(states, models.TransferComponentState{ComponentID: component.ID, ComponentName: component.Name, Selected: selected[component.ID], Status: status, Message: message})
+	} else {
+		selected := make(map[string]bool, len(request.ComponentIDs))
+		for _, id := range request.ComponentIDs {
+			selected[strings.TrimSpace(id)] = true
+		}
+		for _, component := range project.Components {
+			status := models.TransferStatusReady
+			message := "Ready"
+			if !selected[component.ID] {
+				status = models.TransferStatusSkipped
+				message = "Not selected"
+			} else if !component.Package.Enabled {
+				status = models.TransferStatusSkipped
+				message = "Packaging disabled"
+			}
+			states = append(states, models.TransferComponentState{ComponentID: component.ID, ComponentName: component.Name, Selected: selected[component.ID], Status: status, Message: message})
+		}
 	}
 	return models.TransferRun{ID: runID, ProjectID: project.ID, ProjectName: project.Name, Environment: project.EffectiveEnvironment(request.Environment), Version: plan.Version, Status: models.TransferRunStatusRunning, Components: states, StartTime: time.Now()}, nil
 }
@@ -221,6 +276,9 @@ func (s *Service) Execute(ctx context.Context, run models.TransferRun, project m
 		}
 		component := components[state.ComponentID]
 		item := items[state.ComponentID]
+		if component.ID == "" {
+			component = models.Component{ID: state.ComponentID, Name: state.ComponentName, Package: models.PackageConfig{Enabled: true}}
+		}
 		state.Status = models.TransferStatusSending
 		state.Message = "Sending..."
 		s.emitState(emit, run, *state, EventComponentStarted)
@@ -263,6 +321,9 @@ func (s *Service) SendOneWithMetadata(ctx context.Context, runID string, project
 	}
 	args, err := commandArgs(packagePath, settings)
 	result := models.TransferResult{ProjectID: project.ID, ProjectName: project.Name, ComponentID: component.ID, ComponentName: component.Name, PackagePath: packagePath, Version: version, FilenameTemplate: filenameTemplate, ResolvedFilename: resolvedFilename, Executable: executable, Arguments: args, PeerName: settings.PeerName, PeerAddress: settings.PeerAddress, Status: models.TransferStatusFailed, ExitCode: -1, StartTime: started}
+	if err == nil {
+		result.Command = formatCommand(executable, args)
+	}
 	finish := func(technical error) models.TransferResult {
 		result.EndTime = time.Now()
 		result.DurationMs = result.EndTime.Sub(result.StartTime).Milliseconds()
@@ -283,8 +344,9 @@ func (s *Service) SendOneWithMetadata(ctx context.Context, runID string, project
 		return finish(err)
 	}
 	result.Executable = resolved
+	result.Command = formatCommand(resolved, args)
 	var output strings.Builder
-	s.emit(emit, models.BuildEvent{Type: "output", Phase: Phase, RunID: runID, ProjectID: project.ID, ProjectName: project.Name, ComponentID: component.ID, ComponentName: component.Name, Stream: "system", Text: formatCommand(resolved, args), Timestamp: time.Now()})
+	s.emit(emit, models.BuildEvent{Type: "output", Phase: Phase, RunID: runID, ProjectID: project.ID, ProjectName: project.Name, ComponentID: component.ID, ComponentName: component.Name, Stream: "system", Text: result.Command, Timestamp: time.Now()})
 	outcome := s.runner.Run(ctx, resolved, args, func(stream, text string) {
 		text = cleanOutput(text)
 		output.WriteString(text)
@@ -344,7 +406,30 @@ func commandArgs(packagePath string, settings models.DaliConfig) ([]string, erro
 }
 
 func formatCommand(executable string, args []string) string {
-	return executable + " " + strings.Join(args, " ")
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, quoteCommandPart(executable))
+	for _, arg := range args {
+		if key, value, ok := strings.Cut(arg, "="); ok {
+			parts = append(parts, key+"="+quoteCommandValue(value, key == "file"))
+		} else {
+			parts = append(parts, quoteCommandPart(arg))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func quoteCommandPart(value string) string {
+	if strings.ContainsAny(value, " \t\"") {
+		return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+	}
+	return value
+}
+
+func quoteCommandValue(value string, always bool) string {
+	if always || strings.ContainsAny(value, " \t\"") {
+		return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+	}
+	return value
 }
 
 func (s *Service) finish(run models.TransferRun, emit EventSink) models.TransferRun {
@@ -389,13 +474,37 @@ func (s *Service) writeRecord(runID string, result models.TransferResult, techni
 	if s.history == nil {
 		return
 	}
-	record := models.TransferRecord{Timestamp: time.Now(), RunID: runID, ProjectID: result.ProjectID, ProjectName: result.ProjectName, ComponentID: result.ComponentID, ComponentName: result.ComponentName, PackagePath: result.PackagePath, Version: result.Version, FilenameTemplate: result.FilenameTemplate, ResolvedFilename: result.ResolvedFilename, Executable: result.Executable, Arguments: result.Arguments, PeerName: result.PeerName, PeerAddress: result.PeerAddress, ExitCode: result.ExitCode, StartTime: result.StartTime, EndTime: result.EndTime, DurationMs: result.DurationMs, Success: result.Success, Status: result.Status, Error: result.Error}
+	record := models.TransferRecord{Timestamp: time.Now(), RunID: runID, ProjectID: result.ProjectID, ProjectName: result.ProjectName, ComponentID: result.ComponentID, ComponentName: result.ComponentName, PackagePath: result.PackagePath, Version: result.Version, FilenameTemplate: result.FilenameTemplate, ResolvedFilename: result.ResolvedFilename, Executable: result.Executable, Arguments: result.Arguments, Command: result.Command, PeerName: result.PeerName, PeerAddress: result.PeerAddress, ExitCode: result.ExitCode, StartTime: result.StartTime, EndTime: result.EndTime, DurationMs: result.DurationMs, Success: result.Success, Status: result.Status, Error: result.Error}
 	if technical != nil {
 		record.TechnicalError = technical.Error()
 	}
 	if err := s.history.Append(record); err != nil && s.logger != nil {
 		s.logger.Error("Dali transfer history could not be written: " + err.Error())
 	}
+}
+
+func normalizeDirectPackagePaths(paths []string) ([]string, error) {
+	result := make([]string, 0, len(paths))
+	seen := make(map[string]bool, len(paths))
+	for _, raw := range paths {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			return nil, errors.New("package path cannot be empty")
+		}
+		absolute, err := filepath.Abs(value)
+		if err != nil {
+			return nil, fmt.Errorf("resolve package path %q: %w", value, err)
+		}
+		normalized := filepath.Clean(absolute)
+		if !seen[normalized] {
+			seen[normalized] = true
+			result = append(result, normalized)
+		}
+	}
+	if len(result) == 0 {
+		return nil, errors.New("select at least one ZIP package")
+	}
+	return result, nil
 }
 
 func statusMessage(status string) string {

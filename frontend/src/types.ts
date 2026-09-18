@@ -30,6 +30,8 @@ export type RunSummary = {
   operation: string;
   version?: string;
   componentIds: string[];
+  componentNames?: string[];
+  packagePaths?: string[];
   startTime: string;
   endTime?: string;
   status: string;
@@ -40,7 +42,12 @@ export type RunSummary = {
   retryOfRunId?: string;
   attempt?: number;
   retryStage?: string;
+  command?: string;
+  daliCommands?: Record<string, string>;
 };
+
+export type ActivityQuery = { projectId?: string; environment?: string; status?: string; search?: string; page: number; pageSize: number };
+export type ActivityPage = { runs: RunSummary[]; page: number; pageSize: number; total: number; totalPages: number };
 
 export type RetryStage = 'build' | 'package' | 'transfer';
 export type RetryRequest = { runId: string; stage: RetryStage; componentIds?: string[] };
@@ -152,6 +159,7 @@ export type DaliConfig = {
   auto: boolean;
   wait: boolean;
 };
+export type DaliAvailability = { available: boolean; configuredExecutable: string; resolvedExecutable: string; error?: string; installCommand: string; releaseUrl: string };
 
 export type TransferStatus = 'ready' | 'sending' | 'success' | 'failed' | 'skipped' | 'cancelled';
 export type TransferRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -164,6 +172,7 @@ export type TransferRequest = {
   packageNames?: Record<string, string>;
   environment?: string;
   releaseDirectory?: string;
+  packagePaths?: string[];
 };
 
 export type TransferPlanItem = {
@@ -198,6 +207,7 @@ export type TransferResult = {
   packagePath: string;
   executable: string;
   arguments: string[];
+  command: string;
   peerName?: string;
   peerAddress?: string;
   exitCode: number;

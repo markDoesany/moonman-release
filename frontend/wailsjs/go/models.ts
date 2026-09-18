@@ -1,5 +1,137 @@
 export namespace models {
 	
+	export class RunSummary {
+	    runId: string;
+	    projectId: string;
+	    projectName: string;
+	    environment?: string;
+	    operation: string;
+	    version?: string;
+	    componentIds: string[];
+	    componentNames?: string[];
+	    packagePaths?: string[];
+	    // Go type: time
+	    startTime: any;
+	    // Go type: time
+	    endTime?: any;
+	    status: string;
+	    errorSummary?: string;
+	    filenameTemplate?: string;
+	    approvedPackageNames?: Record<string, string>;
+	    releaseDirectory?: string;
+	    retryOfRunId?: string;
+	    attempt?: number;
+	    retryStage?: string;
+	    command?: string;
+	    daliCommands?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new RunSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.runId = source["runId"];
+	        this.projectId = source["projectId"];
+	        this.projectName = source["projectName"];
+	        this.environment = source["environment"];
+	        this.operation = source["operation"];
+	        this.version = source["version"];
+	        this.componentIds = source["componentIds"];
+	        this.componentNames = source["componentNames"];
+	        this.packagePaths = source["packagePaths"];
+	        this.startTime = this.convertValues(source["startTime"], null);
+	        this.endTime = this.convertValues(source["endTime"], null);
+	        this.status = source["status"];
+	        this.errorSummary = source["errorSummary"];
+	        this.filenameTemplate = source["filenameTemplate"];
+	        this.approvedPackageNames = source["approvedPackageNames"];
+	        this.releaseDirectory = source["releaseDirectory"];
+	        this.retryOfRunId = source["retryOfRunId"];
+	        this.attempt = source["attempt"];
+	        this.retryStage = source["retryStage"];
+	        this.command = source["command"];
+	        this.daliCommands = source["daliCommands"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ActivityPage {
+	    runs: RunSummary[];
+	    page: number;
+	    pageSize: number;
+	    total: number;
+	    totalPages: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ActivityPage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.runs = this.convertValues(source["runs"], RunSummary);
+	        this.page = source["page"];
+	        this.pageSize = source["pageSize"];
+	        this.total = source["total"];
+	        this.totalPages = source["totalPages"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ActivityQuery {
+	    projectId?: string;
+	    environment?: string;
+	    status?: string;
+	    search?: string;
+	    page?: number;
+	    pageSize?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ActivityQuery(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.environment = source["environment"];
+	        this.status = source["status"];
+	        this.search = source["search"];
+	        this.page = source["page"];
+	        this.pageSize = source["pageSize"];
+	    }
+	}
 	export class BuildResult {
 	    projectId: string;
 	    projectName: string;
@@ -218,6 +350,28 @@ export namespace models {
 		    }
 		    return a;
 		}
+	}
+	export class DaliAvailability {
+	    available: boolean;
+	    configuredExecutable: string;
+	    resolvedExecutable: string;
+	    error?: string;
+	    installCommand: string;
+	    releaseUrl: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DaliAvailability(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.configuredExecutable = source["configuredExecutable"];
+	        this.resolvedExecutable = source["resolvedExecutable"];
+	        this.error = source["error"];
+	        this.installCommand = source["installCommand"];
+	        this.releaseUrl = source["releaseUrl"];
+	    }
 	}
 	export class DaliConfig {
 	    executable: string;
@@ -559,6 +713,7 @@ export namespace models {
 	    resolvedFilename?: string;
 	    executable: string;
 	    arguments: string[];
+	    command: string;
 	    peerName?: string;
 	    peerAddress?: string;
 	    exitCode: number;
@@ -587,6 +742,7 @@ export namespace models {
 	        this.resolvedFilename = source["resolvedFilename"];
 	        this.executable = source["executable"];
 	        this.arguments = source["arguments"];
+	        this.command = source["command"];
 	        this.peerName = source["peerName"];
 	        this.peerAddress = source["peerAddress"];
 	        this.exitCode = source["exitCode"];
@@ -866,70 +1022,7 @@ export namespace models {
 		    return a;
 		}
 	}
-	export class RunSummary {
-	    runId: string;
-	    projectId: string;
-	    projectName: string;
-	    environment?: string;
-	    operation: string;
-	    version?: string;
-	    componentIds: string[];
-	    // Go type: time
-	    startTime: any;
-	    // Go type: time
-	    endTime?: any;
-	    status: string;
-	    errorSummary?: string;
-	    filenameTemplate?: string;
-	    approvedPackageNames?: Record<string, string>;
-	    releaseDirectory?: string;
-	    retryOfRunId?: string;
-	    attempt?: number;
-	    retryStage?: string;
 	
-	    static createFrom(source: any = {}) {
-	        return new RunSummary(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.runId = source["runId"];
-	        this.projectId = source["projectId"];
-	        this.projectName = source["projectName"];
-	        this.environment = source["environment"];
-	        this.operation = source["operation"];
-	        this.version = source["version"];
-	        this.componentIds = source["componentIds"];
-	        this.startTime = this.convertValues(source["startTime"], null);
-	        this.endTime = this.convertValues(source["endTime"], null);
-	        this.status = source["status"];
-	        this.errorSummary = source["errorSummary"];
-	        this.filenameTemplate = source["filenameTemplate"];
-	        this.approvedPackageNames = source["approvedPackageNames"];
-	        this.releaseDirectory = source["releaseDirectory"];
-	        this.retryOfRunId = source["retryOfRunId"];
-	        this.attempt = source["attempt"];
-	        this.retryStage = source["retryStage"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	
 	export class TransferPlanItem {
 	    componentId: string;
@@ -1010,6 +1103,7 @@ export namespace models {
 	    packageNames?: Record<string, string>;
 	    environment?: string;
 	    releaseDirectory?: string;
+	    packagePaths?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new TransferRequest(source);
@@ -1024,6 +1118,7 @@ export namespace models {
 	        this.packageNames = source["packageNames"];
 	        this.environment = source["environment"];
 	        this.releaseDirectory = source["releaseDirectory"];
+	        this.packagePaths = source["packagePaths"];
 	    }
 	}
 	
