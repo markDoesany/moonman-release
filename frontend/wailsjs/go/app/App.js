@@ -50,6 +50,10 @@ export function PickFile(arg1) {
   return window['go']['app']['App']['PickFile'](arg1);
 }
 
+export function RetryRun(arg1) {
+  return window['go']['app']['App']['RetryRun'](arg1);
+}
+
 export function SaveDaliConfig(arg1) {
   return window['go']['app']['App']['SaveDaliConfig'](arg1);
 }

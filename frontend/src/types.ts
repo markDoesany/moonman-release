@@ -37,7 +37,24 @@ export type RunSummary = {
   filenameTemplate?: string;
   approvedPackageNames?: Record<string, string>;
   releaseDirectory?: string;
+  retryOfRunId?: string;
+  attempt?: number;
+  retryStage?: string;
 };
+
+export type RetryStage = 'build' | 'package' | 'transfer';
+export type RetryRequest = { runId: string; stage: RetryStage; componentIds?: string[] };
+export type RetryRunResult = {
+  operation: OperationName;
+  stage: RetryStage;
+  attempt: number;
+  retryOfRunId: string;
+  build?: BuildRun;
+  package?: PackageRun;
+  release?: ReleaseRun;
+  transfer?: TransferRun;
+};
+type OperationName = 'build' | 'package' | 'release' | 'release-transfer' | 'transfer';
 
 export type ValidationIssue = {
   field: string;

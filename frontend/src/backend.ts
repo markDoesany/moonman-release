@@ -17,9 +17,10 @@ import {
   StartPackage as generatedStartPackage,
   StartBuild as generatedStartBuild,
   StartTransfer as generatedStartTransfer,
+  RetryRun as generatedRetryRun,
   ValidateProject as generatedValidateProject,
 } from '../wailsjs/go/app/App';
-import type { BuildRequest, BuildRun, DaliConfig, PackagePlan, PackageRequest, PackageRun, Project, ReleaseRun, RunSummary, TransferPlan, TransferRequest, TransferRun, ValidationIssue } from './types';
+import type { BuildRequest, BuildRun, DaliConfig, PackagePlan, PackageRequest, PackageRun, Project, ReleaseRun, RetryRequest, RetryRunResult, RunSummary, TransferPlan, TransferRequest, TransferRun, ValidationIssue } from './types';
 
 export const CancelBuild = generatedCancelBuild;
 export const DeleteProject = generatedDeleteProject;
@@ -38,5 +39,6 @@ export const StartPackage = (request: PackageRequest): Promise<PackageRun> => ge
 export const StartBuildAndPackage = (request: PackageRequest): Promise<ReleaseRun> => generatedStartBuildAndPackage(request as unknown as Parameters<typeof generatedStartBuildAndPackage>[0]) as Promise<ReleaseRun>;
 export const StartBuildPackageAndSend = (request: PackageRequest): Promise<ReleaseRun> => generatedStartBuildPackageAndSend(request as unknown as Parameters<typeof generatedStartBuildPackageAndSend>[0]) as Promise<ReleaseRun>;
 export const StartTransfer = (request: TransferRequest): Promise<TransferRun> => generatedStartTransfer(request as unknown as Parameters<typeof generatedStartTransfer>[0]) as Promise<TransferRun>;
+export const RetryRun = (request: RetryRequest): Promise<RetryRunResult> => generatedRetryRun(request as unknown as Parameters<typeof generatedRetryRun>[0]) as Promise<RetryRunResult>;
 export const SaveDaliConfig = (settings: DaliConfig): Promise<DaliConfig> => generatedSaveDaliConfig(settings as unknown as Parameters<typeof generatedSaveDaliConfig>[0]) as Promise<DaliConfig>;
 export const ValidateProject = (project: Project): Promise<ValidationIssue[]> => generatedValidateProject(project as unknown as Parameters<typeof generatedValidateProject>[0]) as Promise<ValidationIssue[]>;

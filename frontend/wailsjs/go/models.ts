@@ -716,63 +716,21 @@ export namespace models {
 		    return a;
 		}
 	}
-	export class RunSummary {
+	export class RetryRequest {
 	    runId: string;
-	    projectId: string;
-	    projectName: string;
-	    environment?: string;
-	    operation: string;
-	    version?: string;
-	    componentIds: string[];
-	    // Go type: time
-	    startTime: any;
-	    // Go type: time
-	    endTime?: any;
-	    status: string;
-	    errorSummary?: string;
-	    filenameTemplate?: string;
-	    approvedPackageNames?: Record<string, string>;
-	    releaseDirectory?: string;
+	    stage: string;
+	    componentIds?: string[];
 	
 	    static createFrom(source: any = {}) {
-	        return new RunSummary(source);
+	        return new RetryRequest(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.runId = source["runId"];
-	        this.projectId = source["projectId"];
-	        this.projectName = source["projectName"];
-	        this.environment = source["environment"];
-	        this.operation = source["operation"];
-	        this.version = source["version"];
+	        this.stage = source["stage"];
 	        this.componentIds = source["componentIds"];
-	        this.startTime = this.convertValues(source["startTime"], null);
-	        this.endTime = this.convertValues(source["endTime"], null);
-	        this.status = source["status"];
-	        this.errorSummary = source["errorSummary"];
-	        this.filenameTemplate = source["filenameTemplate"];
-	        this.approvedPackageNames = source["approvedPackageNames"];
-	        this.releaseDirectory = source["releaseDirectory"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class TransferComponentState {
 	    componentId: string;
@@ -814,6 +772,165 @@ export namespace models {
 		    return a;
 		}
 	}
+	export class TransferRun {
+	    id: string;
+	    projectId: string;
+	    projectName: string;
+	    environment?: string;
+	    version: string;
+	    status: string;
+	    components: TransferComponentState[];
+	    // Go type: time
+	    startTime: any;
+	    // Go type: time
+	    endTime?: any;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TransferRun(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.projectId = source["projectId"];
+	        this.projectName = source["projectName"];
+	        this.environment = source["environment"];
+	        this.version = source["version"];
+	        this.status = source["status"];
+	        this.components = this.convertValues(source["components"], TransferComponentState);
+	        this.startTime = this.convertValues(source["startTime"], null);
+	        this.endTime = this.convertValues(source["endTime"], null);
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RetryRun {
+	    operation: string;
+	    stage: string;
+	    attempt: number;
+	    retryOfRunId: string;
+	    build?: BuildRun;
+	    package?: PackageRun;
+	    release?: ReleaseRun;
+	    transfer?: TransferRun;
+	
+	    static createFrom(source: any = {}) {
+	        return new RetryRun(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.operation = source["operation"];
+	        this.stage = source["stage"];
+	        this.attempt = source["attempt"];
+	        this.retryOfRunId = source["retryOfRunId"];
+	        this.build = this.convertValues(source["build"], BuildRun);
+	        this.package = this.convertValues(source["package"], PackageRun);
+	        this.release = this.convertValues(source["release"], ReleaseRun);
+	        this.transfer = this.convertValues(source["transfer"], TransferRun);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RunSummary {
+	    runId: string;
+	    projectId: string;
+	    projectName: string;
+	    environment?: string;
+	    operation: string;
+	    version?: string;
+	    componentIds: string[];
+	    // Go type: time
+	    startTime: any;
+	    // Go type: time
+	    endTime?: any;
+	    status: string;
+	    errorSummary?: string;
+	    filenameTemplate?: string;
+	    approvedPackageNames?: Record<string, string>;
+	    releaseDirectory?: string;
+	    retryOfRunId?: string;
+	    attempt?: number;
+	    retryStage?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RunSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.runId = source["runId"];
+	        this.projectId = source["projectId"];
+	        this.projectName = source["projectName"];
+	        this.environment = source["environment"];
+	        this.operation = source["operation"];
+	        this.version = source["version"];
+	        this.componentIds = source["componentIds"];
+	        this.startTime = this.convertValues(source["startTime"], null);
+	        this.endTime = this.convertValues(source["endTime"], null);
+	        this.status = source["status"];
+	        this.errorSummary = source["errorSummary"];
+	        this.filenameTemplate = source["filenameTemplate"];
+	        this.approvedPackageNames = source["approvedPackageNames"];
+	        this.releaseDirectory = source["releaseDirectory"];
+	        this.retryOfRunId = source["retryOfRunId"];
+	        this.attempt = source["attempt"];
+	        this.retryStage = source["retryStage"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class TransferPlanItem {
 	    componentId: string;
 	    componentName: string;
@@ -910,56 +1027,7 @@ export namespace models {
 	    }
 	}
 	
-	export class TransferRun {
-	    id: string;
-	    projectId: string;
-	    projectName: string;
-	    environment?: string;
-	    version: string;
-	    status: string;
-	    components: TransferComponentState[];
-	    // Go type: time
-	    startTime: any;
-	    // Go type: time
-	    endTime?: any;
-	    error?: string;
 	
-	    static createFrom(source: any = {}) {
-	        return new TransferRun(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.projectId = source["projectId"];
-	        this.projectName = source["projectName"];
-	        this.environment = source["environment"];
-	        this.version = source["version"];
-	        this.status = source["status"];
-	        this.components = this.convertValues(source["components"], TransferComponentState);
-	        this.startTime = this.convertValues(source["startTime"], null);
-	        this.endTime = this.convertValues(source["endTime"], null);
-	        this.error = source["error"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class ValidationIssue {
 	    field: string;
 	    message: string;

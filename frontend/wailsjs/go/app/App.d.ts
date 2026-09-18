@@ -26,6 +26,8 @@ export function PickDirectory(arg1:string):Promise<string>;
 
 export function PickFile(arg1:string):Promise<string>;
 
+export function RetryRun(arg1:models.RetryRequest):Promise<models.RetryRun>;
+
 export function SaveDaliConfig(arg1:models.DaliConfig):Promise<models.DaliConfig>;
 
 export function SaveProject(arg1:models.Project):Promise<models.Project>;
