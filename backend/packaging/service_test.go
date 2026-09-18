@@ -49,7 +49,7 @@ func writeFile(t *testing.T, path, contents string) {
 	}
 }
 
-func TestPackageOneCreatesFlatValidatedArchive(t *testing.T) {
+func TestPackageOnePreservesOutputDirectoryInArchive(t *testing.T) {
 	project, releaseRoot := packageProject(t, "admin")
 	component := project.Components[0]
 	writeFile(t, filepath.Join(component.Path, component.OutputDirectory, "index.html"), "<html></html>")
@@ -72,7 +72,7 @@ func TestPackageOneCreatesFlatValidatedArchive(t *testing.T) {
 	for _, file := range reader.File {
 		names[file.Name] = true
 	}
-	if !names["index.html"] || !names["assets/app.js"] || names["source folder/index.html"] {
+	if !names["source folder/index.html"] || !names["source folder/assets/app.js"] || names["index.html"] {
 		t.Fatalf("unexpected archive entries: %v", names)
 	}
 	contents, err := os.ReadFile(historyPath)

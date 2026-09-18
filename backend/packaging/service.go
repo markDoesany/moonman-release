@@ -461,7 +461,7 @@ func (s *Service) packageOne(ctx context.Context, runID string, project models.P
 		if err != nil {
 			return err
 		}
-		header.Name = filepath.ToSlash(relative)
+		header.Name = filepath.ToSlash(filepath.Join(filepath.Base(source), relative))
 		header.Method = zip.Deflate
 		writer, err := zipWriter.CreateHeader(header)
 		if err != nil {
