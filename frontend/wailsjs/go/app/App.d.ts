@@ -16,7 +16,11 @@ export function GetProject(arg1:string):Promise<models.Project>;
 
 export function GetProjects():Promise<Array<models.Project>>;
 
+export function GetRecentRuns(arg1:string,arg2:number):Promise<Array<models.RunSummary>>;
+
 export function GetTransferPlan(arg1:models.TransferRequest):Promise<models.TransferPlan>;
+
+export function OpenReleaseFolder(arg1:string):Promise<void>;
 
 export function PickDirectory(arg1:string):Promise<string>;
 

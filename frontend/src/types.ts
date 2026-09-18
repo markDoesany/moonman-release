@@ -8,10 +8,35 @@ export type Component = {
   package: PackageConfig;
 };
 
+export type EnvironmentProfile = {
+  id: string;
+  name: string;
+  commands: Record<string, string>;
+};
+
 export type Project = {
   id: string;
   name: string;
+  defaultEnvironment?: string;
+  environments?: EnvironmentProfile[];
   components: Component[];
+};
+
+export type RunSummary = {
+  runId: string;
+  projectId: string;
+  projectName: string;
+  environment?: string;
+  operation: string;
+  version?: string;
+  componentIds: string[];
+  startTime: string;
+  endTime?: string;
+  status: string;
+  errorSummary?: string;
+  filenameTemplate?: string;
+  approvedPackageNames?: Record<string, string>;
+  releaseDirectory?: string;
 };
 
 export type ValidationIssue = {
@@ -120,6 +145,7 @@ export type TransferRequest = {
   version: string;
   filenameTemplate?: string;
   packageNames?: Record<string, string>;
+  environment?: string;
 };
 
 export type TransferPlanItem = {
@@ -138,6 +164,7 @@ export type TransferPlan = {
   projectId: string;
   projectName: string;
   version: string;
+  releaseDirectory: string;
   components: TransferPlanItem[];
   hasMissing: boolean;
   filenameTemplate: string;
@@ -175,6 +202,7 @@ export type TransferRun = {
   id: string;
   projectId: string;
   projectName: string;
+  environment?: string;
   version: string;
   status: TransferRunStatus;
   components: TransferComponentState[];
@@ -248,6 +276,7 @@ export type PackageRun = {
   id: string;
   projectId: string;
   projectName: string;
+  environment?: string;
   version: string;
   status: PackageRunStatus;
   components: PackageComponentState[];

@@ -30,8 +30,16 @@ export function GetProjects() {
   return window['go']['app']['App']['GetProjects']();
 }
 
+export function GetRecentRuns(arg1, arg2) {
+  return window['go']['app']['App']['GetRecentRuns'](arg1, arg2);
+}
+
 export function GetTransferPlan(arg1) {
   return window['go']['app']['App']['GetTransferPlan'](arg1);
+}
+
+export function OpenReleaseFolder(arg1) {
+  return window['go']['app']['App']['OpenReleaseFolder'](arg1);
 }
 
 export function PickDirectory(arg1) {

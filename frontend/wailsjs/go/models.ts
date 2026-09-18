@@ -239,6 +239,22 @@ export namespace models {
 	        this.wait = source["wait"];
 	    }
 	}
+	export class EnvironmentProfile {
+	    id: string;
+	    name: string;
+	    commands: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnvironmentProfile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.commands = source["commands"];
+	    }
+	}
 	export class PackageResult {
 	    projectId: string;
 	    projectName: string;
@@ -444,6 +460,7 @@ export namespace models {
 	    id: string;
 	    projectId: string;
 	    projectName: string;
+	    environment?: string;
 	    version: string;
 	    status: string;
 	    components: PackageComponentState[];
@@ -462,6 +479,7 @@ export namespace models {
 	        this.id = source["id"];
 	        this.projectId = source["projectId"];
 	        this.projectName = source["projectName"];
+	        this.environment = source["environment"];
 	        this.version = source["version"];
 	        this.status = source["status"];
 	        this.components = this.convertValues(source["components"], PackageComponentState);
@@ -491,6 +509,8 @@ export namespace models {
 	export class Project {
 	    id: string;
 	    name: string;
+	    defaultEnvironment?: string;
+	    environments?: EnvironmentProfile[];
 	    components: Component[];
 	
 	    static createFrom(source: any = {}) {
@@ -501,6 +521,8 @@ export namespace models {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
+	        this.defaultEnvironment = source["defaultEnvironment"];
+	        this.environments = this.convertValues(source["environments"], EnvironmentProfile);
 	        this.components = this.convertValues(source["components"], Component);
 	    }
 	
@@ -692,6 +714,64 @@ export namespace models {
 		    return a;
 		}
 	}
+	export class RunSummary {
+	    runId: string;
+	    projectId: string;
+	    projectName: string;
+	    environment?: string;
+	    operation: string;
+	    version?: string;
+	    componentIds: string[];
+	    // Go type: time
+	    startTime: any;
+	    // Go type: time
+	    endTime?: any;
+	    status: string;
+	    errorSummary?: string;
+	    filenameTemplate?: string;
+	    approvedPackageNames?: Record<string, string>;
+	    releaseDirectory?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RunSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.runId = source["runId"];
+	        this.projectId = source["projectId"];
+	        this.projectName = source["projectName"];
+	        this.environment = source["environment"];
+	        this.operation = source["operation"];
+	        this.version = source["version"];
+	        this.componentIds = source["componentIds"];
+	        this.startTime = this.convertValues(source["startTime"], null);
+	        this.endTime = this.convertValues(source["endTime"], null);
+	        this.status = source["status"];
+	        this.errorSummary = source["errorSummary"];
+	        this.filenameTemplate = source["filenameTemplate"];
+	        this.approvedPackageNames = source["approvedPackageNames"];
+	        this.releaseDirectory = source["releaseDirectory"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class TransferComponentState {
 	    componentId: string;
 	    componentName: string;
@@ -764,6 +844,7 @@ export namespace models {
 	    projectId: string;
 	    projectName: string;
 	    version: string;
+	    releaseDirectory: string;
 	    filenameTemplate: string;
 	    components: TransferPlanItem[];
 	    hasMissing: boolean;
@@ -777,6 +858,7 @@ export namespace models {
 	        this.projectId = source["projectId"];
 	        this.projectName = source["projectName"];
 	        this.version = source["version"];
+	        this.releaseDirectory = source["releaseDirectory"];
 	        this.filenameTemplate = source["filenameTemplate"];
 	        this.components = this.convertValues(source["components"], TransferPlanItem);
 	        this.hasMissing = source["hasMissing"];
@@ -807,6 +889,7 @@ export namespace models {
 	    version: string;
 	    filenameTemplate?: string;
 	    packageNames?: Record<string, string>;
+	    environment?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TransferRequest(source);
@@ -819,6 +902,7 @@ export namespace models {
 	        this.version = source["version"];
 	        this.filenameTemplate = source["filenameTemplate"];
 	        this.packageNames = source["packageNames"];
+	        this.environment = source["environment"];
 	    }
 	}
 	
@@ -826,6 +910,7 @@ export namespace models {
 	    id: string;
 	    projectId: string;
 	    projectName: string;
+	    environment?: string;
 	    version: string;
 	    status: string;
 	    components: TransferComponentState[];
@@ -844,6 +929,7 @@ export namespace models {
 	        this.id = source["id"];
 	        this.projectId = source["projectId"];
 	        this.projectName = source["projectName"];
+	        this.environment = source["environment"];
 	        this.version = source["version"];
 	        this.status = source["status"];
 	        this.components = this.convertValues(source["components"], TransferComponentState);
