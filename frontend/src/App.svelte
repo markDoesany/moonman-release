@@ -17,11 +17,13 @@
   let settingsTab: 'general' | 'components' | 'environments' = 'general'; let selectedEnvironmentId = ''; let issues: ValidationIssue[] = []; let errorMessage = ''; let successMessage = ''; let namingError = ''; let deleteCandidate: Project | null = null;
   let daliConfig: DaliConfig = { executable: 'dali', peerName: '', peerAddress: '', auto: true, wait: false }; let newComponentSequence = 0;
   let environmentDeleteCandidate: EnvironmentProfile | null = null;
+  let notificationTimer: ReturnType<typeof setTimeout> | null = null;
 
   $: selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
   $: environments = selectedProject?.environments?.length ? selectedProject.environments : legacyEnvironments(selectedProject);
   $: activeEnvironment = environments.find((environment) => environment.id === releaseEnvironment) ?? environments[0];
-  $: selectedEnvironmentProfile = selectedProfile();
+  $: selectedEnvironmentProfile = settingsProject?.environments?.find((environment) => environment.id === selectedEnvironmentId) ?? settingsProject?.environments?.[0] ?? null;
+  $: if (successMessage || errorMessage) scheduleNotificationDismissal();
   $: operationActive = operationStarting || currentRun?.status === 'running' || namingPlan !== null || buildReview;
   $: currentRun = buildRun ?? packageRun ?? transferRun ?? releaseRun;
   $: filteredActivity = activity.filter((run) => (activityStatus === 'all' || run.status === activityStatus) && (!activityProject || run.projectId === activityProject) && (activityEnvironment === 'all' || run.environment === activityEnvironment));
@@ -90,6 +92,7 @@
   function checkedValue(event: Event) { return (event.currentTarget as HTMLInputElement).checked; }
   function selectValue(event: Event) { return (event.currentTarget as HTMLSelectElement).value; }
   function readableError(error: unknown) { return error instanceof Error ? error.message : String(error); }
+  function scheduleNotificationDismissal() { if (notificationTimer) clearTimeout(notificationTimer); notificationTimer = setTimeout(() => { errorMessage = ''; successMessage = ''; notificationTimer = null; }, 3000); }
 </script>
 
 <svelte:head><title>Release Launcher</title></svelte:head>
