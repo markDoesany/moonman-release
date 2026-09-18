@@ -31,6 +31,7 @@ type Paths struct {
 	BuildLogFile    string
 	PackageLogFile  string
 	TransferLogFile string
+	ActivityLogFile string
 	ReleaseDir      string
 }
 
@@ -69,6 +70,7 @@ func ResolvePaths() (Paths, error) {
 		BuildLogFile:    filepath.Join(logDir, "builds.jsonl"),
 		PackageLogFile:  filepath.Join(logDir, "packaging.jsonl"),
 		TransferLogFile: filepath.Join(logDir, "transfers.jsonl"),
+		ActivityLogFile: filepath.Join(logDir, "activity.jsonl"),
 		ReleaseDir:      filepath.Join(baseDir, "releases"),
 	}, nil
 }
@@ -366,9 +368,24 @@ func validateDaliConfig(settings models.DaliConfig) error {
 var slugPattern = regexp.MustCompile(`[^a-z0-9]+`)
 
 func normalizeProject(project models.Project, existing []models.Project) models.Project {
+	isNew := strings.TrimSpace(project.ID) == ""
 	project.Name = strings.TrimSpace(project.Name)
 	if strings.TrimSpace(project.ID) == "" {
 		project.ID = uniqueID(slug(project.Name), project.ID, projectIDs(existing))
+	}
+	if isNew && len(project.Environments) == 0 {
+		project.Environments = cloneEnvironments(models.DefaultEnvironmentProfiles)
+	}
+	project.DefaultEnvironment = strings.TrimSpace(project.DefaultEnvironment)
+	if project.DefaultEnvironment == "" && len(project.Environments) > 0 {
+		project.DefaultEnvironment = project.Environments[0].ID
+	}
+	for i := range project.Environments {
+		project.Environments[i].ID = strings.TrimSpace(project.Environments[i].ID)
+		project.Environments[i].Name = strings.TrimSpace(project.Environments[i].Name)
+		if project.Environments[i].Commands == nil {
+			project.Environments[i].Commands = map[string]string{}
+		}
 	}
 	usedComponentIDs := make(map[string]bool)
 	for _, component := range project.Components {
@@ -423,7 +440,31 @@ func cloneProjects(projects []models.Project) []models.Project {
 
 func cloneProject(project models.Project) models.Project {
 	project.Components = append([]models.Component(nil), project.Components...)
+	project.Environments = cloneEnvironments(project.Environments)
+	for i := range project.Components {
+		project.Components[i].BuildCommands = cloneStringMap(project.Components[i].BuildCommands)
+	}
 	return project
+}
+
+func cloneEnvironments(environments []models.EnvironmentProfile) []models.EnvironmentProfile {
+	result := make([]models.EnvironmentProfile, len(environments))
+	for i, environment := range environments {
+		result[i] = environment
+		result[i].Commands = cloneStringMap(environment.Commands)
+	}
+	return result
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if values == nil {
+		return nil
+	}
+	result := make(map[string]string, len(values))
+	for key, value := range values {
+		result[key] = value
+	}
+	return result
 }
 
 func formatIssues(issues []models.ValidationIssue) string {

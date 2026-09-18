@@ -170,3 +170,38 @@ func TestValidateReportsRequiredFields(t *testing.T) {
 		}
 	}
 }
+
+func TestEnvironmentProfilesPersistAndValidate(t *testing.T) {
+	paths := testPaths(t)
+	if err := os.MkdirAll(paths.ConfigDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.ConfigFile, []byte("projects: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(paths, logging.New(paths.LogFile))
+	if err := service.Load(); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := service.SaveProject(models.Project{
+		Name:               "Profiles",
+		DefaultEnvironment: "staging",
+		Environments:       []models.EnvironmentProfile{{ID: "dev", Name: "Development", Commands: map[string]string{"web": "npm run dev"}}, {ID: "staging", Name: "Staging", Commands: map[string]string{"web": "npm run staging"}}},
+		Components:         []models.Component{{Name: "Web", Path: "C:/web", BuildCommand: "npm run build", OutputDirectory: "build", Package: models.PackageConfig{Filename: "web.zip"}}},
+	})
+	if err != nil {
+		t.Fatalf("SaveProject() error = %v", err)
+	}
+	reloaded := NewService(paths, logging.New(paths.LogFile))
+	if err := reloaded.Load(); err != nil {
+		t.Fatal(err)
+	}
+	project, err := reloaded.Project(saved.ID)
+	if err != nil || project.DefaultEnvironment != "staging" || project.Environments[1].Commands["web"] != "npm run staging" {
+		t.Fatalf("profile configuration did not persist: %+v, error = %v", project, err)
+	}
+	issues := Validate([]models.Project{{ID: "bad", Name: "Bad", DefaultEnvironment: "qa", Environments: []models.EnvironmentProfile{{ID: "dev", Name: "Development"}, {ID: "dev", Name: "Duplicate"}}}})
+	if len(issues) < 2 {
+		t.Fatalf("expected duplicate and unknown default environment issues, got %+v", issues)
+	}
+}

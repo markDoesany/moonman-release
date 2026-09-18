@@ -51,6 +51,40 @@ type Service struct {
 	history *logging.JSONLWriter
 }
 
+// ResolveBuildCommand is the single command-resolution path used by every
+// build-producing workflow. Project profiles take precedence, followed by the
+// legacy per-component environment map and finally build_command.
+func ResolveBuildCommand(project models.Project, componentID, environmentID string) (string, error) {
+	componentIndex := -1
+	for i := range project.Components {
+		if project.Components[i].ID == strings.TrimSpace(componentID) {
+			componentIndex = i
+			break
+		}
+	}
+	if componentIndex < 0 {
+		return "", fmt.Errorf("component %q is not configured for project %q", componentID, project.Name)
+	}
+	component := project.Components[componentIndex]
+	environmentID = project.EffectiveEnvironment(environmentID)
+	if len(project.Environments) > 0 {
+		profile, ok := project.Environment(environmentID)
+		if !ok {
+			return "", fmt.Errorf("environment %q is not configured for project %q", environmentID, project.Name)
+		}
+		if command := strings.TrimSpace(profile.Commands[component.ID]); command != "" {
+			return command, nil
+		}
+	}
+	if command := strings.TrimSpace(component.BuildCommands[environmentID]); command != "" {
+		return command, nil
+	}
+	if command := strings.TrimSpace(component.BuildCommand); command != "" {
+		return command, nil
+	}
+	return "", fmt.Errorf("no build command configured for component %q", component.Name)
+}
+
 func NewService(logger *logging.Logger, history *logging.JSONLWriter) *Service {
 	return &Service{
 		runner:  newProcessRunner(),
@@ -71,6 +105,12 @@ func (s *Service) PrepareRun(runID string, project models.Project, componentIDs 
 }
 
 func (s *Service) PrepareRunForEnvironment(runID string, project models.Project, componentIDs []string, environment string) (models.BuildRun, error) {
+	environment = project.EffectiveEnvironment(environment)
+	if len(project.Environments) > 0 {
+		if _, ok := project.Environment(environment); !ok {
+			return models.BuildRun{}, fmt.Errorf("environment %q is not configured for project %q", environment, project.Name)
+		}
+	}
 	selected := make(map[string]bool, len(componentIDs))
 	for _, id := range componentIDs {
 		id = strings.TrimSpace(id)
@@ -152,7 +192,16 @@ func (s *Service) Execute(ctx context.Context, run models.BuildRun, project mode
 		}
 
 		component := componentByID[state.ComponentID]
-		command := component.CommandForEnvironment(run.Environment)
+		command, resolveErr := ResolveBuildCommand(project, component.ID, run.Environment)
+		if resolveErr != nil {
+			state.Status = models.BuildStatusFailed
+			state.Message = resolveErr.Error()
+			s.emitComponentState(emit, run, *state, EventComponentFinished)
+			run.Status = models.BuildRunStatusFailed
+			run.Error = resolveErr.Error()
+			skipRemaining(run.Components[i+1:], "Previous component failed", emit, run)
+			break
+		}
 		state.Status = models.BuildStatusBuilding
 		state.Message = "Building..."
 		s.emitComponentState(emit, run, *state, EventComponentStarted)
@@ -169,7 +218,7 @@ func (s *Service) Execute(ctx context.Context, run models.BuildRun, project mode
 			Timestamp:     time.Now(),
 		})
 
-		result := s.buildComponent(ctx, run, component, emit)
+		result := s.buildComponent(ctx, run, project, component, emit)
 		state.Result = &result
 		state.Status = result.Status
 		state.Message = result.Error
@@ -212,10 +261,10 @@ func (s *Service) Execute(ctx context.Context, run models.BuildRun, project mode
 // BuildComponent executes one component and validates its output directory.
 // It is used by the build-only run and by the build-and-package pipeline.
 func (s *Service) BuildComponent(ctx context.Context, run models.BuildRun, project models.Project, component models.Component, emit EventSink) models.BuildResult {
-	return s.buildComponent(ctx, run, component, emit)
+	return s.buildComponent(ctx, run, project, component, emit)
 }
 
-func (s *Service) buildComponent(ctx context.Context, run models.BuildRun, component models.Component, emit EventSink) models.BuildResult {
+func (s *Service) buildComponent(ctx context.Context, run models.BuildRun, project models.Project, component models.Component, emit EventSink) models.BuildResult {
 	start := time.Now()
 	result := models.BuildResult{
 		ProjectID:       run.ProjectID,
@@ -238,17 +287,22 @@ func (s *Service) buildComponent(ctx context.Context, run models.BuildRun, compo
 			result.Error = "Project directory could not be accessed."
 		}
 		result.EndTime = time.Now()
-		s.finishResult(run, component, &result, err)
+		s.finishResult(run, project, component, &result, err)
 		return result
 	}
 	if !info.IsDir() {
 		result.Error = "Project path is not a directory."
 		result.EndTime = time.Now()
-		s.finishResult(run, component, &result, errors.New("configured project path is not a directory"))
+		s.finishResult(run, project, component, &result, errors.New("configured project path is not a directory"))
 		return result
 	}
 
-	command := component.CommandForEnvironment(run.Environment)
+	command, resolveErr := ResolveBuildCommand(project, component.ID, run.Environment)
+	if resolveErr != nil {
+		result.Error = resolveErr.Error()
+		s.finishResult(run, project, component, &result, resolveErr)
+		return result
+	}
 	outcome := s.runner.Run(ctx, command, component.Path, func(stream, text string) {
 		s.emit(emit, models.BuildEvent{
 			Type:          EventOutput,
@@ -276,7 +330,7 @@ func (s *Service) buildComponent(ctx context.Context, run models.BuildRun, compo
 	if outcome.Cancelled || errors.Is(ctx.Err(), context.Canceled) {
 		result.Status = models.BuildStatusCancelled
 		result.Error = "Build cancelled."
-		s.finishResult(run, component, &result, outcome.Technical)
+		s.finishResult(run, project, component, &result, outcome.Technical)
 		return result
 	}
 	if outcome.Err != nil {
@@ -287,7 +341,7 @@ func (s *Service) buildComponent(ctx context.Context, run models.BuildRun, compo
 		} else {
 			result.Error = "Build command could not be started. Make sure Node.js/npm is installed and available in PATH."
 		}
-		s.finishResult(run, component, &result, outcome.Technical)
+		s.finishResult(run, project, component, &result, outcome.Technical)
 		return result
 	}
 
@@ -297,17 +351,17 @@ func (s *Service) buildComponent(ctx context.Context, run models.BuildRun, compo
 		if err == nil {
 			err = errors.New("configured output path is not a directory")
 		}
-		s.finishResult(run, component, &result, err)
+		s.finishResult(run, project, component, &result, err)
 		return result
 	}
 	result.Success = true
 	result.Status = models.BuildStatusSuccess
 	result.Error = ""
-	s.finishResult(run, component, &result, nil)
+	s.finishResult(run, project, component, &result, nil)
 	return result
 }
 
-func (s *Service) finishResult(run models.BuildRun, component models.Component, result *models.BuildResult, technical error) {
+func (s *Service) finishResult(run models.BuildRun, project models.Project, component models.Component, result *models.BuildResult, technical error) {
 	if result.EndTime.IsZero() {
 		result.EndTime = time.Now()
 	}
@@ -326,7 +380,7 @@ func (s *Service) finishResult(run models.BuildRun, component models.Component, 
 		ComponentID:     component.ID,
 		ComponentName:   component.Name,
 		Environment:     run.Environment,
-		BuildCommand:    component.CommandForEnvironment(run.Environment),
+		BuildCommand:    resolvedCommand(project, component, run.Environment),
 		ProjectPath:     component.Path,
 		StartTime:       result.StartTime,
 		EndTime:         result.EndTime,
@@ -344,6 +398,14 @@ func (s *Service) finishResult(run models.BuildRun, component models.Component, 
 	if err := s.history.Append(record); err != nil && s.logger != nil {
 		s.logger.Error("Build history could not be written: " + err.Error())
 	}
+}
+
+func resolvedCommand(project models.Project, component models.Component, environment string) string {
+	command, err := ResolveBuildCommand(project, component.ID, environment)
+	if err != nil {
+		return ""
+	}
+	return command
 }
 
 func (s *Service) emit(sink EventSink, event models.BuildEvent) {

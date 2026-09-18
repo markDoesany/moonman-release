@@ -94,6 +94,25 @@ func TestExecuteUsesEnvironmentBuildCommand(t *testing.T) {
 	}
 }
 
+func TestResolveBuildCommandUsesProfileBeforeLegacyFallbacks(t *testing.T) {
+	project := testProject(t, "admin")
+	project.DefaultEnvironment = "dev"
+	project.Environments = []models.EnvironmentProfile{{ID: "dev", Name: "Development", Commands: map[string]string{"admin": "profile-dev"}}, {ID: "prod", Name: "Production", Commands: map[string]string{}}}
+	project.Components[0].BuildCommands = map[string]string{"prod": "legacy-prod"}
+	project.Components[0].BuildCommand = "default-build"
+	command, err := ResolveBuildCommand(project, "admin", "dev")
+	if err != nil || command != "profile-dev" {
+		t.Fatalf("profile command = %q, error = %v", command, err)
+	}
+	command, err = ResolveBuildCommand(project, "admin", "prod")
+	if err != nil || command != "legacy-prod" {
+		t.Fatalf("legacy environment fallback = %q, error = %v", command, err)
+	}
+	if _, err := ResolveBuildCommand(project, "admin", "qa"); err == nil {
+		t.Fatal("unknown profile environment should be rejected")
+	}
+}
+
 func TestExecuteStopsAfterFailureAndSkipsRemaining(t *testing.T) {
 	project := testProject(t, "admin", "customer", "merchant")
 	if err := os.MkdirAll(filepath.Join(project.Components[0].Path, "dist"), 0o755); err != nil {

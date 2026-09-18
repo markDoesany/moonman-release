@@ -22,6 +22,23 @@ func Validate(projects []models.Project) []models.ValidationIssue {
 		if strings.TrimSpace(project.Name) == "" {
 			issues = append(issues, models.ValidationIssue{Field: projectPrefix + ".name", Message: "project name cannot be empty"})
 		}
+		environmentIDs := make(map[string]bool)
+		for environmentIndex, environment := range project.Environments {
+			environmentPrefix := projectPrefix + ".environments[" + strconv.Itoa(environmentIndex) + "]"
+			id := strings.TrimSpace(environment.ID)
+			if id == "" {
+				issues = append(issues, models.ValidationIssue{Field: environmentPrefix + ".id", Message: "environment ID cannot be empty"})
+			} else if environmentIDs[id] {
+				issues = append(issues, models.ValidationIssue{Field: environmentPrefix + ".id", Message: "environment ID must be unique within the project"})
+			}
+			environmentIDs[id] = true
+			if strings.TrimSpace(environment.Name) == "" {
+				issues = append(issues, models.ValidationIssue{Field: environmentPrefix + ".name", Message: "environment name cannot be empty"})
+			}
+		}
+		if strings.TrimSpace(project.DefaultEnvironment) != "" && len(project.Environments) > 0 && !environmentIDs[strings.TrimSpace(project.DefaultEnvironment)] {
+			issues = append(issues, models.ValidationIssue{Field: projectPrefix + ".defaultEnvironment", Message: "default environment must reference a configured environment"})
+		}
 
 		componentIDs := make(map[string]bool)
 		for componentIndex, component := range project.Components {

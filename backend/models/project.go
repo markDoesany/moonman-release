@@ -8,9 +8,52 @@ import (
 
 // Project describes a releaseable product and its components.
 type Project struct {
-	ID         string      `yaml:"id" json:"id"`
-	Name       string      `yaml:"name" json:"name"`
-	Components []Component `yaml:"components" json:"components"`
+	ID                 string               `yaml:"id" json:"id"`
+	Name               string               `yaml:"name" json:"name"`
+	DefaultEnvironment string               `yaml:"default_environment,omitempty" json:"defaultEnvironment,omitempty"`
+	Environments       []EnvironmentProfile `yaml:"environments,omitempty" json:"environments,omitempty"`
+	Components         []Component          `yaml:"components" json:"components"`
+}
+
+// EnvironmentProfile groups build commands for a project-wide release target.
+// Commands are keyed by component ID. Empty commands intentionally fall back to
+// the legacy component command fields.
+type EnvironmentProfile struct {
+	ID       string            `yaml:"id" json:"id"`
+	Name     string            `yaml:"name" json:"name"`
+	Commands map[string]string `yaml:"commands" json:"commands"`
+}
+
+var DefaultEnvironmentProfiles = []EnvironmentProfile{
+	{ID: "dev", Name: "Development", Commands: map[string]string{}},
+	{ID: "staging", Name: "Staging", Commands: map[string]string{}},
+	{ID: "prod", Name: "Production", Commands: map[string]string{}},
+}
+
+// Environment returns a configured profile by ID.
+func (p Project) Environment(id string) (EnvironmentProfile, bool) {
+	id = strings.TrimSpace(id)
+	for _, environment := range p.Environments {
+		if environment.ID == id {
+			return environment, true
+		}
+	}
+	return EnvironmentProfile{}, false
+}
+
+// EffectiveEnvironment applies the project's default when the caller omitted
+// an environment. Legacy projects without profiles retain their old behavior.
+func (p Project) EffectiveEnvironment(id string) string {
+	if value := strings.TrimSpace(id); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(p.DefaultEnvironment); value != "" {
+		return value
+	}
+	if len(p.Environments) > 0 {
+		return p.Environments[0].ID
+	}
+	return ""
 }
 
 // Component describes the source and future release settings for one component.
