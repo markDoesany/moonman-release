@@ -5,6 +5,7 @@ export namespace models {
 	    projectName: string;
 	    componentId: string;
 	    componentName: string;
+	    environment?: string;
 	    success: boolean;
 	    status: string;
 	    exitCode: number;
@@ -27,6 +28,7 @@ export namespace models {
 	        this.projectName = source["projectName"];
 	        this.componentId = source["componentId"];
 	        this.componentName = source["componentName"];
+	        this.environment = source["environment"];
 	        this.success = source["success"];
 	        this.status = source["status"];
 	        this.exitCode = source["exitCode"];
@@ -99,6 +101,7 @@ export namespace models {
 	export class BuildRequest {
 	    projectId: string;
 	    componentIds: string[];
+	    environment?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new BuildRequest(source);
@@ -108,6 +111,7 @@ export namespace models {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.projectId = source["projectId"];
 	        this.componentIds = source["componentIds"];
+	        this.environment = source["environment"];
 	    }
 	}
 	
@@ -115,6 +119,7 @@ export namespace models {
 	    id: string;
 	    projectId: string;
 	    projectName: string;
+	    environment?: string;
 	    status: string;
 	    components: BuildComponentState[];
 	    // Go type: time
@@ -132,6 +137,7 @@ export namespace models {
 	        this.id = source["id"];
 	        this.projectId = source["projectId"];
 	        this.projectName = source["projectName"];
+	        this.environment = source["environment"];
 	        this.status = source["status"];
 	        this.components = this.convertValues(source["components"], BuildComponentState);
 	        this.startTime = this.convertValues(source["startTime"], null);
@@ -176,6 +182,7 @@ export namespace models {
 	    name: string;
 	    path: string;
 	    buildCommand: string;
+	    buildCommands?: Record<string, string>;
 	    outputDirectory: string;
 	    package: PackageConfig;
 	
@@ -189,6 +196,7 @@ export namespace models {
 	        this.name = source["name"];
 	        this.path = source["path"];
 	        this.buildCommand = source["buildCommand"];
+	        this.buildCommands = source["buildCommands"];
 	        this.outputDirectory = source["outputDirectory"];
 	        this.package = this.convertValues(source["package"], PackageConfig);
 	    }
@@ -414,6 +422,7 @@ export namespace models {
 	    overwrite: boolean;
 	    filenameTemplate?: string;
 	    packageNames?: Record<string, string>;
+	    environment?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new PackageRequest(source);
@@ -427,6 +436,7 @@ export namespace models {
 	        this.overwrite = source["overwrite"];
 	        this.filenameTemplate = source["filenameTemplate"];
 	        this.packageNames = source["packageNames"];
+	        this.environment = source["environment"];
 	    }
 	}
 	
@@ -636,6 +646,7 @@ export namespace models {
 	    id: string;
 	    projectId: string;
 	    projectName: string;
+	    environment?: string;
 	    version: string;
 	    status: string;
 	    components: ReleaseComponentState[];
@@ -654,6 +665,7 @@ export namespace models {
 	        this.id = source["id"];
 	        this.projectId = source["projectId"];
 	        this.projectName = source["projectName"];
+	        this.environment = source["environment"];
 	        this.version = source["version"];
 	        this.status = source["status"];
 	        this.components = this.convertValues(source["components"], ReleaseComponentState);

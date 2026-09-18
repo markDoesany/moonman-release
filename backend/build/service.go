@@ -67,6 +67,10 @@ func newServiceWithRunner(logger *logging.Logger, history *logging.JSONLWriter, 
 
 // PrepareRun validates the request and creates the initial run state.
 func (s *Service) PrepareRun(runID string, project models.Project, componentIDs []string) (models.BuildRun, error) {
+	return s.PrepareRunForEnvironment(runID, project, componentIDs, "")
+}
+
+func (s *Service) PrepareRunForEnvironment(runID string, project models.Project, componentIDs []string, environment string) (models.BuildRun, error) {
 	selected := make(map[string]bool, len(componentIDs))
 	for _, id := range componentIDs {
 		id = strings.TrimSpace(id)
@@ -100,6 +104,7 @@ func (s *Service) PrepareRun(runID string, project models.Project, componentIDs 
 		ID:          runID,
 		ProjectID:   project.ID,
 		ProjectName: project.Name,
+		Environment: environment,
 		Status:      models.BuildRunStatusRunning,
 		Components:  states,
 		StartTime:   time.Now(),
@@ -114,6 +119,7 @@ func (s *Service) Execute(ctx context.Context, run models.BuildRun, project mode
 		ProjectID:   run.ProjectID,
 		ProjectName: run.ProjectName,
 		RunStatus:   run.Status,
+		Environment: run.Environment,
 		Timestamp:   time.Now(),
 	})
 
@@ -146,6 +152,7 @@ func (s *Service) Execute(ctx context.Context, run models.BuildRun, project mode
 		}
 
 		component := componentByID[state.ComponentID]
+		command := component.CommandForEnvironment(run.Environment)
 		state.Status = models.BuildStatusBuilding
 		state.Message = "Building..."
 		s.emitComponentState(emit, run, *state, EventComponentStarted)
@@ -157,7 +164,8 @@ func (s *Service) Execute(ctx context.Context, run models.BuildRun, project mode
 			ComponentID:   component.ID,
 			ComponentName: component.Name,
 			Stream:        StreamSystem,
-			Text:          "> " + component.BuildCommand,
+			Text:          "> " + command,
+			Environment:   run.Environment,
 			Timestamp:     time.Now(),
 		})
 
@@ -214,6 +222,7 @@ func (s *Service) buildComponent(ctx context.Context, run models.BuildRun, compo
 		ProjectName:     run.ProjectName,
 		ComponentID:     component.ID,
 		ComponentName:   component.Name,
+		Environment:     run.Environment,
 		Status:          models.BuildStatusFailed,
 		ExitCode:        -1,
 		OutputDirectory: component.OutputDirectory,
@@ -239,7 +248,8 @@ func (s *Service) buildComponent(ctx context.Context, run models.BuildRun, compo
 		return result
 	}
 
-	outcome := s.runner.Run(ctx, component.BuildCommand, component.Path, func(stream, text string) {
+	command := component.CommandForEnvironment(run.Environment)
+	outcome := s.runner.Run(ctx, command, component.Path, func(stream, text string) {
 		s.emit(emit, models.BuildEvent{
 			Type:          EventOutput,
 			RunID:         run.ID,
@@ -249,6 +259,7 @@ func (s *Service) buildComponent(ctx context.Context, run models.BuildRun, compo
 			ComponentName: component.Name,
 			Stream:        stream,
 			Text:          text,
+			Environment:   run.Environment,
 			Timestamp:     time.Now(),
 		})
 	})
@@ -314,7 +325,8 @@ func (s *Service) finishResult(run models.BuildRun, component models.Component, 
 		ProjectName:     run.ProjectName,
 		ComponentID:     component.ID,
 		ComponentName:   component.Name,
-		BuildCommand:    component.BuildCommand,
+		Environment:     run.Environment,
+		BuildCommand:    component.CommandForEnvironment(run.Environment),
 		ProjectPath:     component.Path,
 		StartTime:       result.StartTime,
 		EndTime:         result.EndTime,
@@ -351,6 +363,7 @@ func (s *Service) emitComponentState(sink EventSink, run models.BuildRun, state 
 		Status:        state.Status,
 		Result:        state.Result,
 		Error:         state.Message,
+		Environment:   run.Environment,
 		Timestamp:     time.Now(),
 	})
 }

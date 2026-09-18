@@ -33,6 +33,7 @@ type ReleaseRun struct {
 	ID          string                  `json:"id"`
 	ProjectID   string                  `json:"projectId"`
 	ProjectName string                  `json:"projectName"`
+	Environment string                  `json:"environment,omitempty"`
 	Version     string                  `json:"version"`
 	Status      ReleaseRunStatus        `json:"status"`
 	Components  []ReleaseComponentState `json:"components"`

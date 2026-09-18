@@ -82,6 +82,7 @@ func (s *Service) PrepareRun(runID string, project models.Project, request model
 		ID:          runID,
 		ProjectID:   project.ID,
 		ProjectName: project.Name,
+		Environment: strings.TrimSpace(request.Environment),
 		Version:     plan.Version,
 		Status:      models.ReleaseRunStatusRunning,
 		Components:  states,
@@ -140,7 +141,7 @@ func (s *Service) execute(ctx context.Context, run models.ReleaseRun, project mo
 		state.BuildStatus = models.BuildStatusBuilding
 		state.BuildMessage = "Building..."
 		s.emitReleaseState(emit, run, *state)
-		buildRun := models.BuildRun{ID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName}
+		buildRun := models.BuildRun{ID: run.ID, ProjectID: run.ProjectID, ProjectName: run.ProjectName, Environment: run.Environment}
 		buildResult := s.builder.BuildComponent(ctx, buildRun, project, component, func(event models.BuildEvent) {
 			event.Phase = "build"
 			event.Version = run.Version

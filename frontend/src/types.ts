@@ -3,6 +3,7 @@ export type Component = {
   name: string;
   path: string;
   buildCommand: string;
+  buildCommands?: Record<string, string>;
   outputDirectory: string;
   package: PackageConfig;
 };
@@ -24,6 +25,7 @@ export type BuildRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 export type BuildRequest = {
   projectId: string;
   componentIds: string[];
+  environment?: string;
 };
 
 export type BuildResult = {
@@ -31,6 +33,7 @@ export type BuildResult = {
   projectName: string;
   componentId: string;
   componentName: string;
+  environment?: string;
   success: boolean;
   status: BuildStatus;
   exitCode: number;
@@ -55,6 +58,7 @@ export type BuildRun = {
   id: string;
   projectId: string;
   projectName: string;
+  environment?: string;
   status: BuildRunStatus;
   components: BuildComponentState[];
   startTime: string;
@@ -76,6 +80,7 @@ export type BuildEvent = {
   text?: string;
   timestamp: string;
   version?: string;
+  environment?: string;
   result?: BuildResult;
   results?: BuildResult[];
   packageStatus?: PackageStatus;
@@ -188,6 +193,7 @@ export type PackageRequest = {
   overwrite: boolean;
   filenameTemplate?: string;
   packageNames?: Record<string, string>;
+  environment?: string;
 };
 
 export type PackagePlanItem = {
@@ -269,6 +275,7 @@ export type ReleaseRun = {
   id: string;
   projectId: string;
   projectName: string;
+  environment?: string;
   version: string;
   status: 'running' | 'completed' | 'failed' | 'cancelled';
   components: ReleaseComponentState[];

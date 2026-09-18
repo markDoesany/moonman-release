@@ -32,6 +32,7 @@ type PackageRequest struct {
 	Overwrite        bool              `json:"overwrite"`
 	FilenameTemplate string            `json:"filenameTemplate,omitempty"`
 	PackageNames     map[string]string `json:"packageNames,omitempty"`
+	Environment      string            `json:"environment,omitempty"`
 }
 
 // PackagePlanItem describes one potential archive and any overwrite conflict.

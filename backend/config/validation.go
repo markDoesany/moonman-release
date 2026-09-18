@@ -38,7 +38,16 @@ func Validate(projects []models.Project) []models.ValidationIssue {
 			if strings.TrimSpace(component.Path) == "" {
 				issues = append(issues, models.ValidationIssue{Field: componentPrefix + ".path", Message: "component path cannot be empty"})
 			}
-			if strings.TrimSpace(component.BuildCommand) == "" {
+			hasBuildCommand := strings.TrimSpace(component.BuildCommand) != ""
+			for environment, command := range component.BuildCommands {
+				if strings.TrimSpace(environment) == "" {
+					issues = append(issues, models.ValidationIssue{Field: componentPrefix + ".buildCommands", Message: "environment names cannot be empty"})
+				}
+				if strings.TrimSpace(command) != "" {
+					hasBuildCommand = true
+				}
+			}
+			if !hasBuildCommand {
 				issues = append(issues, models.ValidationIssue{Field: componentPrefix + ".buildCommand", Message: "build command cannot be empty"})
 			}
 			if strings.TrimSpace(component.OutputDirectory) == "" {

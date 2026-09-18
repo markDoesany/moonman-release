@@ -424,7 +424,7 @@ func (a *App) StartBuild(request models.BuildRequest) (models.BuildRun, error) {
 		return models.BuildRun{}, err
 	}
 	runID := fmt.Sprintf("build-%d-%d", time.Now().UnixNano(), a.runSequence.Add(1))
-	run, err := a.buildService.PrepareRun(runID, project, request.ComponentIDs)
+	run, err := a.buildService.PrepareRunForEnvironment(runID, project, request.ComponentIDs, request.Environment)
 	if err != nil {
 		return models.BuildRun{}, err
 	}

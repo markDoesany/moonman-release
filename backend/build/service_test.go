@@ -76,6 +76,24 @@ func TestPrepareRunPreservesProjectOrderAndSelection(t *testing.T) {
 	}
 }
 
+func TestExecuteUsesEnvironmentBuildCommand(t *testing.T) {
+	project := testProject(t, "admin")
+	project.Components[0].BuildCommands = map[string]string{"dev": "build-admin-dev", "prod": "build-admin-prod"}
+	if err := os.MkdirAll(filepath.Join(project.Components[0].Path, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{outcomes: []processOutcome{{ExitCode: 0}}}
+	service, _ := newTestService(t, runner)
+	run, err := service.PrepareRunForEnvironment("run-prod", project, []string{"admin"}, "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := service.Execute(context.Background(), run, project, func(models.BuildEvent) {})
+	if final.Status != models.BuildRunStatusCompleted || len(runner.calls) != 1 || runner.calls[0] != "build-admin-prod" {
+		t.Fatalf("environment command was not used: run=%+v calls=%v", final, runner.calls)
+	}
+}
+
 func TestExecuteStopsAfterFailureAndSkipsRemaining(t *testing.T) {
 	project := testProject(t, "admin", "customer", "merchant")
 	if err := os.MkdirAll(filepath.Join(project.Components[0].Path, "dist"), 0o755); err != nil {

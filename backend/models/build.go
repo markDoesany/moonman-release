@@ -28,6 +28,7 @@ const (
 type BuildRequest struct {
 	ProjectID    string   `json:"projectId"`
 	ComponentIDs []string `json:"componentIds"`
+	Environment  string   `json:"environment,omitempty"`
 }
 
 // BuildComponentState is the frontend-facing state for one component.
@@ -45,6 +46,7 @@ type BuildRun struct {
 	ID          string                `json:"id"`
 	ProjectID   string                `json:"projectId"`
 	ProjectName string                `json:"projectName"`
+	Environment string                `json:"environment,omitempty"`
 	Status      BuildRunStatus        `json:"status"`
 	Components  []BuildComponentState `json:"components"`
 	StartTime   time.Time             `json:"startTime"`
@@ -58,6 +60,7 @@ type BuildResult struct {
 	ProjectName     string      `json:"projectName"`
 	ComponentID     string      `json:"componentId"`
 	ComponentName   string      `json:"componentName"`
+	Environment     string      `json:"environment,omitempty"`
 	Success         bool        `json:"success"`
 	Status          BuildStatus `json:"status"`
 	ExitCode        int         `json:"exitCode"`
@@ -84,6 +87,7 @@ type BuildEvent struct {
 	Text            string           `json:"text,omitempty"`
 	Timestamp       time.Time        `json:"timestamp"`
 	Version         string           `json:"version,omitempty"`
+	Environment     string           `json:"environment,omitempty"`
 	Result          *BuildResult     `json:"result,omitempty"`
 	Results         []BuildResult    `json:"results,omitempty"`
 	PackageStatus   PackageStatus    `json:"packageStatus,omitempty"`
@@ -103,6 +107,7 @@ type BuildRecord struct {
 	ProjectName     string      `json:"projectName"`
 	ComponentID     string      `json:"componentId"`
 	ComponentName   string      `json:"componentName"`
+	Environment     string      `json:"environment,omitempty"`
 	BuildCommand    string      `json:"buildCommand"`
 	ProjectPath     string      `json:"projectPath"`
 	StartTime       time.Time   `json:"startTime"`
