@@ -193,7 +193,7 @@ func TestPackagePlanRejectsRelativeReleaseDirectory(t *testing.T) {
 	}
 }
 
-func TestExecuteStopsAfterPackageFailure(t *testing.T) {
+func TestExecuteRunsAlreadyStartedPackagesAfterFailure(t *testing.T) {
 	project, releaseRoot := packageProject(t, "admin", "customer", "merchant")
 	writeFile(t, filepath.Join(project.Components[0].Path, project.Components[0].OutputDirectory, "index.html"), "admin")
 	writeFile(t, filepath.Join(project.Components[2].Path, project.Components[2].OutputDirectory, "index.html"), "merchant")
@@ -206,7 +206,7 @@ func TestExecuteStopsAfterPackageFailure(t *testing.T) {
 	if final.Status != models.PackageRunStatusFailed {
 		t.Fatalf("run status = %q, want failed", final.Status)
 	}
-	if final.Components[0].Status != models.PackageStatusSuccess || final.Components[1].Status != models.PackageStatusFailed || final.Components[2].Status != models.PackageStatusSkipped {
+	if final.Components[0].Status != models.PackageStatusSuccess || final.Components[1].Status != models.PackageStatusFailed || final.Components[2].Status != models.PackageStatusSuccess {
 		t.Fatalf("unexpected package states: %+v", final.Components)
 	}
 }

@@ -11,10 +11,12 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"release-launcher/backend/logging"
 	"release-launcher/backend/models"
+	"release-launcher/backend/parallel"
 	"release-launcher/backend/pathutil"
 )
 
@@ -236,7 +238,7 @@ func (s *Service) PrepareRunRequest(runID string, project models.Project, reques
 	}, nil
 }
 
-// Execute packages selected components sequentially and stops on the first failure.
+// Execute packages selected components with bounded concurrency.
 func (s *Service) Execute(ctx context.Context, run models.PackageRun, project models.Project, componentIDs []string, overwrite bool, emit EventSink) models.PackageRun {
 	return s.ExecuteRequest(ctx, run, project, models.PackageRequest{ProjectID: project.ID, ComponentIDs: componentIDs, Version: run.Version, Overwrite: overwrite}, emit)
 }
@@ -270,6 +272,7 @@ func (s *Service) ExecuteRequest(ctx context.Context, run models.PackageRun, pro
 	for _, item := range plan.Components {
 		items[item.ComponentID] = item
 	}
+	indexes := make([]int, 0, len(run.Components))
 	for i := range run.Components {
 		state := &run.Components[i]
 		item := items[state.ComponentID]
@@ -283,26 +286,35 @@ func (s *Service) ExecuteRequest(ctx context.Context, run models.PackageRun, pro
 			state.Status = models.PackageStatusSkipped
 			state.Message = "Packaging disabled"
 			s.emitState(emit, run, *state, EventComponentFinished)
+			continue
+		}
+		indexes = append(indexes, i)
+	}
+
+	var failureMu sync.Mutex
+	var failure string
+	var cancelled bool
+	recordFailure := func(message string, wasCancelled bool) {
+		failureMu.Lock()
+		defer failureMu.Unlock()
+		if failure == "" {
+			failure = message
+			cancelled = wasCancelled
 		}
 	}
 
-	for i := range run.Components {
-		state := &run.Components[i]
-		if !state.Selected || state.Status == models.PackageStatusSkipped || run.Status != models.PackageRunStatusRunning {
-			continue
-		}
+	parallel.ForEach(ctx, indexes, parallel.DefaultWorkers, func(index int) bool {
+		state := &run.Components[index]
+		component := components[state.ComponentID]
+		item := items[state.ComponentID]
 		if err := ctx.Err(); err != nil {
 			state.Status = models.PackageStatusCancelled
 			state.Message = "Packaging cancelled before this component started"
 			s.emitState(emit, run, *state, EventComponentFinished)
-			skipRemaining(run.Components[i+1:], "Packaging cancelled", emit, run)
-			run.Status = models.PackageRunStatusCancelled
-			run.Error = "Packaging cancelled"
-			break
+			recordFailure("Packaging cancelled", true)
+			return false
 		}
 
-		component := components[state.ComponentID]
-		item := items[state.ComponentID]
 		state.Status = models.PackageStatusPackaging
 		state.Message = "Packaging..."
 		s.emitState(emit, run, *state, EventComponentStarted)
@@ -330,20 +342,35 @@ func (s *Service) ExecuteRequest(ctx context.Context, run models.PackageRun, pro
 		}
 		s.emitState(emit, run, *state, EventComponentFinished)
 		if result.Status == models.PackageStatusCancelled {
-			run.Status = models.PackageRunStatusCancelled
-			run.Error = "Packaging cancelled"
-			skipRemaining(run.Components[i+1:], "Packaging cancelled", emit, run)
-			break
+			recordFailure("Packaging cancelled", true)
+			return false
 		}
 		if !result.Success {
-			run.Status = models.PackageRunStatusFailed
-			run.Error = fmt.Sprintf("%s failed to package.", component.Name)
-			skipRemaining(run.Components[i+1:], "Previous component failed", emit, run)
-			break
+			recordFailure(fmt.Sprintf("%s failed to package.", component.Name), false)
+			return false
 		}
-	}
+		return true
+	})
 
-	if run.Status == models.PackageRunStatusRunning {
+	failureMu.Lock()
+	failureMessage, wasCancelled := failure, cancelled
+	failureMu.Unlock()
+	if failureMessage == "" && ctx.Err() != nil {
+		failureMessage = "Packaging cancelled"
+		wasCancelled = true
+	}
+	if failureMessage != "" {
+		reason := "Previous component failed"
+		if wasCancelled || ctx.Err() != nil {
+			run.Status = models.PackageRunStatusCancelled
+			run.Error = "Packaging cancelled"
+			reason = "Packaging cancelled"
+		} else {
+			run.Status = models.PackageRunStatusFailed
+			run.Error = failureMessage
+		}
+		skipRemaining(run.Components, reason, emit, run)
+	} else {
 		run.Status = models.PackageRunStatusCompleted
 	}
 	run.EndTime = time.Now()

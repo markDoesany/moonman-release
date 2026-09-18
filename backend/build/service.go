@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"release-launcher/backend/logging"
 	"release-launcher/backend/models"
+	"release-launcher/backend/parallel"
 	"release-launcher/backend/pathutil"
 )
 
@@ -44,7 +46,7 @@ type processRunner interface {
 	Run(context.Context, string, string, func(string, string)) processOutcome
 }
 
-// Service orchestrates validated, sequential component builds.
+// Service orchestrates validated component builds with bounded concurrency.
 type Service struct {
 	runner  processRunner
 	logger  *logging.Logger
@@ -151,7 +153,8 @@ func (s *Service) PrepareRunForEnvironment(runID string, project models.Project,
 	}, nil
 }
 
-// Execute runs selected components in project configuration order.
+// Execute runs selected components with bounded concurrency. Component state
+// remains in project order even though process output may arrive concurrently.
 func (s *Service) Execute(ctx context.Context, run models.BuildRun, project models.Project, emit EventSink) models.BuildRun {
 	s.emit(emit, models.BuildEvent{
 		Type:        EventRunStarted,
@@ -168,39 +171,47 @@ func (s *Service) Execute(ctx context.Context, run models.BuildRun, project mode
 		componentByID[component.ID] = component
 	}
 
+	indexes := make([]int, 0, len(run.Components))
 	for i := range run.Components {
 		if !run.Components[i].Selected {
 			run.Components[i].Status = models.BuildStatusSkipped
 			run.Components[i].Message = "Not selected"
 			s.emitComponentState(emit, run, run.Components[i], EventComponentFinished)
+			continue
+		}
+		indexes = append(indexes, i)
+	}
+
+	var failureMu sync.Mutex
+	var failure string
+	var cancelled bool
+	recordFailure := func(message string, wasCancelled bool) {
+		failureMu.Lock()
+		defer failureMu.Unlock()
+		if failure == "" {
+			failure = message
+			cancelled = wasCancelled
 		}
 	}
 
-	for i := range run.Components {
-		state := &run.Components[i]
-		if !state.Selected || run.Status != models.BuildRunStatusRunning {
-			continue
-		}
+	parallel.ForEach(ctx, indexes, parallel.DefaultWorkers, func(index int) bool {
+		state := &run.Components[index]
+		component := componentByID[state.ComponentID]
 		if err := ctx.Err(); err != nil {
-			state.Status = models.BuildStatusSkipped
+			state.Status = models.BuildStatusCancelled
 			state.Message = "Build cancelled before this component started"
 			s.emitComponentState(emit, run, *state, EventComponentFinished)
-			skipRemaining(run.Components[i+1:], "Build cancelled", emit, run)
-			run.Status = models.BuildRunStatusCancelled
-			run.Error = "Build cancelled"
-			break
+			recordFailure("Build cancelled", true)
+			return false
 		}
 
-		component := componentByID[state.ComponentID]
 		command, resolveErr := ResolveBuildCommand(project, component.ID, run.Environment)
 		if resolveErr != nil {
 			state.Status = models.BuildStatusFailed
 			state.Message = resolveErr.Error()
 			s.emitComponentState(emit, run, *state, EventComponentFinished)
-			run.Status = models.BuildRunStatusFailed
-			run.Error = resolveErr.Error()
-			skipRemaining(run.Components[i+1:], "Previous component failed", emit, run)
-			break
+			recordFailure(resolveErr.Error(), false)
+			return false
 		}
 		state.Status = models.BuildStatusBuilding
 		state.Message = "Building..."
@@ -228,20 +239,35 @@ func (s *Service) Execute(ctx context.Context, run models.BuildRun, project mode
 		s.emitComponentState(emit, run, *state, EventComponentFinished)
 
 		if result.Status == models.BuildStatusCancelled {
-			run.Status = models.BuildRunStatusCancelled
-			run.Error = "Build cancelled"
-			skipRemaining(run.Components[i+1:], "Build cancelled", emit, run)
-			break
+			recordFailure("Build cancelled", true)
+			return false
 		}
 		if !result.Success {
-			run.Status = models.BuildRunStatusFailed
-			run.Error = fmt.Sprintf("%s failed to build.", component.Name)
-			skipRemaining(run.Components[i+1:], "Previous component failed", emit, run)
-			break
+			recordFailure(fmt.Sprintf("%s failed to build.", component.Name), false)
+			return false
 		}
-	}
+		return true
+	})
 
-	if run.Status == models.BuildRunStatusRunning {
+	failureMu.Lock()
+	failureMessage, wasCancelled := failure, cancelled
+	failureMu.Unlock()
+	if failureMessage == "" && ctx.Err() != nil {
+		failureMessage = "Build cancelled"
+		wasCancelled = true
+	}
+	if failureMessage != "" {
+		reason := "Previous component failed"
+		if wasCancelled || ctx.Err() != nil {
+			run.Status = models.BuildRunStatusCancelled
+			run.Error = "Build cancelled"
+			reason = "Build cancelled"
+		} else {
+			run.Status = models.BuildRunStatusFailed
+			run.Error = failureMessage
+		}
+		skipRemaining(run.Components, reason, emit, run)
+	} else {
 		run.Status = models.BuildRunStatusCompleted
 	}
 	run.EndTime = time.Now()

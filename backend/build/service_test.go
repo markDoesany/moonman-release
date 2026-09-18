@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,15 +14,21 @@ import (
 )
 
 type fakeRunner struct {
+	mu       sync.Mutex
 	outcomes []processOutcome
 	calls    []string
 }
 
 func (r *fakeRunner) Run(_ context.Context, command, _ string, emit func(string, string)) processOutcome {
+	r.mu.Lock()
 	r.calls = append(r.calls, command)
-	emit(StreamStdout, "output from "+command)
 	index := len(r.calls) - 1
-	outcome := r.outcomes[index]
+	outcome := processOutcome{}
+	if index < len(r.outcomes) {
+		outcome = r.outcomes[index]
+	}
+	r.mu.Unlock()
+	emit(StreamStdout, "output from "+command)
 	if outcome.StartTime.IsZero() {
 		outcome.StartTime = time.Now()
 	}
@@ -113,12 +120,15 @@ func TestResolveBuildCommandUsesProfileBeforeLegacyFallbacks(t *testing.T) {
 	}
 }
 
-func TestExecuteStopsAfterFailureAndSkipsRemaining(t *testing.T) {
+func TestExecuteRunsAlreadyStartedComponentsAfterFailure(t *testing.T) {
 	project := testProject(t, "admin", "customer", "merchant")
 	if err := os.MkdirAll(filepath.Join(project.Components[0].Path, "dist"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(project.Components[1].Path, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(project.Components[2].Path, "dist"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{outcomes: []processOutcome{
@@ -133,17 +143,20 @@ func TestExecuteStopsAfterFailureAndSkipsRemaining(t *testing.T) {
 	}
 	final := service.Execute(context.Background(), run, project, nil)
 
-	if len(runner.calls) != 2 {
-		t.Fatalf("expected two process calls, got %d", len(runner.calls))
+	if len(runner.calls) != 3 {
+		t.Fatalf("expected all three components to start within the concurrency limit, got %d", len(runner.calls))
 	}
 	if final.Status != models.BuildRunStatusFailed {
 		t.Fatalf("run status = %q, want failed", final.Status)
 	}
-	if final.Components[0].Status != models.BuildStatusSuccess || final.Components[1].Status != models.BuildStatusFailed {
-		t.Fatalf("unexpected completed states: %+v", final.Components)
+	failed := 0
+	for _, component := range final.Components {
+		if component.Status == models.BuildStatusFailed {
+			failed++
+		}
 	}
-	if final.Components[2].Status != models.BuildStatusSkipped {
-		t.Fatalf("remaining component status = %q, want skipped", final.Components[2].Status)
+	if failed != 1 {
+		t.Fatalf("expected one failed component, got %d: %+v", failed, final.Components)
 	}
 }
 
@@ -181,7 +194,10 @@ func TestExecuteValidatesOutputAndStreamsOutput(t *testing.T) {
 
 func TestExecuteReportsCancellation(t *testing.T) {
 	project := testProject(t, "admin", "customer")
-	runner := &fakeRunner{outcomes: []processOutcome{{ExitCode: -1, Cancelled: true}}}
+	runner := &fakeRunner{outcomes: []processOutcome{
+		{ExitCode: -1, Cancelled: true},
+		{ExitCode: -1, Cancelled: true},
+	}}
 	service, _ := newTestService(t, runner)
 	run, err := service.PrepareRun("run-1", project, []string{"admin", "customer"})
 	if err != nil {
@@ -191,7 +207,7 @@ func TestExecuteReportsCancellation(t *testing.T) {
 	if final.Status != models.BuildRunStatusCancelled {
 		t.Fatalf("run status = %q, want cancelled", final.Status)
 	}
-	if final.Components[0].Status != models.BuildStatusCancelled || final.Components[1].Status != models.BuildStatusSkipped {
+	if final.Components[0].Status != models.BuildStatusCancelled || final.Components[1].Status != models.BuildStatusCancelled {
 		t.Fatalf("unexpected cancellation states: %+v", final.Components)
 	}
 }
