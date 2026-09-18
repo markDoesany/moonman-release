@@ -18,6 +18,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
   gap: 16px;
   padding: 13px 15px;
   background: #0a1a2c;
@@ -33,8 +34,13 @@
 .component-row-main {
   display: flex;
   align-items: center;
+  flex: 1 1 auto;
   min-width: 0;
   gap: 12px;
+}
+
+.component-row-main > div {
+  min-width: 0;
 }
 
 .component-number {
@@ -57,11 +63,12 @@
 }
 
 .component-row-main strong {
+  overflow-wrap: anywhere;
   font-size: 13px;
 }
 
 .component-row-main small {
-  max-width: 560px;
+  max-width: 100%;
   margin-top: 4px;
   overflow: hidden;
   color: #839db6;
@@ -78,10 +85,13 @@
 }
 
 .component-row-meta {
+  flex-wrap: wrap;
   margin-top: 7px;
 }
 
 .component-row-id {
+  max-width: 100%;
+  overflow-wrap: anywhere;
   color: #66839d;
   font:
     10px Consolas,
@@ -93,11 +103,17 @@
 }
 
 .component-details {
+  min-width: 0;
   margin-top: 13px;
   padding: 18px;
   background: #102944;
   border: 1px solid #2b5978;
   border-radius: 8px;
+}
+
+.component-details .form-grid,
+.component-details .field {
+  min-width: 0;
 }
 
 @media (max-width: 900px) {
