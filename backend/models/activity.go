@@ -20,4 +20,7 @@ type RunSummary struct {
 	FilenameTemplate     string            `json:"filenameTemplate,omitempty"`
 	ApprovedPackageNames map[string]string `json:"approvedPackageNames,omitempty"`
 	ReleaseDirectory     string            `json:"releaseDirectory,omitempty"`
+	RetryOfRunID         string            `json:"retryOfRunId,omitempty"`
+	Attempt              int               `json:"attempt,omitempty"`
+	RetryStage           string            `json:"retryStage,omitempty"`
 }

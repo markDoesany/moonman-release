@@ -49,6 +49,7 @@ type commandRunner struct{}
 func (commandRunner) Run(ctx context.Context, executable string, args []string, emit func(string, string)) processOutcome {
 	started := time.Now()
 	cmd := exec.CommandContext(ctx, executable, args...)
+	configureCommand(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return processOutcome{StartTime: started, EndTime: time.Now(), ExitCode: -1, Err: err, Technical: err}

@@ -39,6 +39,8 @@ type App struct {
 	activeCancel context.CancelFunc
 	activeDone   chan struct{}
 	runSequence  atomic.Uint64
+	retryMu      sync.Mutex
+	retryRuns    map[string]retryContext
 }
 
 func New() (*App, error) {
@@ -63,6 +65,7 @@ func New() (*App, error) {
 		transfer:     transferService,
 		pipeline:     pipeline.NewService(builder, packager, transferService),
 		activity:     activityHistory,
+		retryRuns:    make(map[string]retryContext),
 	}, nil
 }
 
@@ -301,7 +304,9 @@ func (a *App) StartPackage(request models.PackageRequest) (models.PackageRun, er
 		} else {
 			a.logger.Error(fmt.Sprintf("Packaging failed: %s", project.Name))
 		}
-		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "package", ComponentIDs: componentIDsFromPackageRequest(request), Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory})
+		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "package", ComponentIDs: componentIDsFromPackageRequest(request), Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory, Attempt: 1})
+		retryRequest := clonePackageRequest(request)
+		a.rememberRetryContext(retryContext{operation: "package", project: project, packageRequest: &retryRequest, packageRun: &finalRun, runID: finalRun.ID, attempt: 1})
 		a.releaseRun(run.ID, done)
 	}()
 	return run, nil
@@ -366,7 +371,9 @@ func (a *App) StartTransfer(request models.TransferRequest) (models.TransferRun,
 		} else {
 			a.logger.Error(fmt.Sprintf("Dali transfer failed: %s", project.Name))
 		}
-		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "transfer", ComponentIDs: request.ComponentIDs, Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory})
+		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "transfer", ComponentIDs: request.ComponentIDs, Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory, Attempt: 1})
+		retryRequest := cloneTransferRequest(request)
+		a.rememberRetryContext(retryContext{operation: "transfer", project: project, transferRequest: &retryRequest, transferRun: &finalRun, runID: finalRun.ID, attempt: 1})
 		a.releaseRun(run.ID, done)
 	}()
 	return run, nil
@@ -412,7 +419,9 @@ func (a *App) StartBuildAndPackage(request models.PackageRequest) (models.Releas
 		} else {
 			a.logger.Error(fmt.Sprintf("Build and package failed: %s", project.Name))
 		}
-		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "build-package", ComponentIDs: request.ComponentIDs, Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory})
+		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "build-package", ComponentIDs: request.ComponentIDs, Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory, Attempt: 1})
+		retryRequest := clonePackageRequest(request)
+		a.rememberRetryContext(retryContext{operation: "release", project: project, packageRequest: &retryRequest, releaseRun: &finalRun, runID: finalRun.ID, attempt: 1})
 		a.releaseRun(run.ID, done)
 	}()
 	return run, nil
@@ -462,7 +471,9 @@ func (a *App) StartBuildPackageAndSend(request models.PackageRequest) (models.Re
 		} else {
 			a.logger.Error(fmt.Sprintf("Build, package, and Dali transfer failed: %s", project.Name))
 		}
-		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "build-package-send", ComponentIDs: request.ComponentIDs, Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory})
+		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "build-package-send", ComponentIDs: request.ComponentIDs, Version: finalRun.Version, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, FilenameTemplate: request.FilenameTemplate, ApprovedPackageNames: request.PackageNames, ReleaseDirectory: plan.ReleaseDirectory, Attempt: 1})
+		retryRequest := clonePackageRequest(request)
+		a.rememberRetryContext(retryContext{operation: "release-transfer", project: project, packageRequest: &retryRequest, releaseRun: &finalRun, runID: finalRun.ID, attempt: 1})
 		a.releaseRun(run.ID, done)
 	}()
 	return run, nil
@@ -510,7 +521,9 @@ func (a *App) StartBuild(request models.BuildRequest) (models.BuildRun, error) {
 		default:
 			a.logger.Error(fmt.Sprintf("Build failed: %s", project.Name))
 		}
-		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "build", ComponentIDs: request.ComponentIDs, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error})
+		a.recordRun(models.RunSummary{RunID: finalRun.ID, ProjectID: finalRun.ProjectID, ProjectName: finalRun.ProjectName, Environment: finalRun.Environment, Operation: "build", ComponentIDs: request.ComponentIDs, StartTime: finalRun.StartTime, EndTime: finalRun.EndTime, Status: string(finalRun.Status), ErrorSummary: finalRun.Error, Attempt: 1})
+		retryRequest := models.BuildRequest{ProjectID: request.ProjectID, ComponentIDs: append([]string(nil), request.ComponentIDs...), Environment: request.Environment}
+		a.rememberRetryContext(retryContext{operation: "build", project: project, buildRequest: &retryRequest, buildRun: &finalRun, runID: finalRun.ID, attempt: 1})
 		a.buildMu.Lock()
 		if a.activeRunID == run.ID {
 			a.activeRunID = ""
