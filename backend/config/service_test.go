@@ -27,6 +27,72 @@ func testPaths(t *testing.T) Paths {
 	}
 }
 
+func TestResolveBaseDirUsesPortableAndInstalledLocations(t *testing.T) {
+	root := t.TempDir()
+	working := filepath.Join(root, "workspace")
+	executableDir := filepath.Join(root, "portable")
+	userConfig := filepath.Join(root, "user-config")
+	if err := os.MkdirAll(filepath.Join(working, "configs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(working, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := resolveBaseDir("", working, filepath.Join(executableDir, "moonman-release.exe"), userConfig); err != nil || got != working {
+		t.Fatalf("development base = %q, error = %v", got, err)
+	}
+
+	if err := os.MkdirAll(executableDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(executableDir, portableMarkerName), []byte("portable\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := resolveBaseDir("", root, filepath.Join(executableDir, "moonman-release.exe"), userConfig); err != nil || got != executableDir {
+		t.Fatalf("portable base = %q, error = %v", got, err)
+	}
+
+	if err := os.Remove(filepath.Join(executableDir, portableMarkerName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(executableDir, installedMarkerName), []byte("installed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := resolveBaseDir("", root, filepath.Join(executableDir, "moonman-release.exe"), userConfig); err != nil || got != filepath.Join(userConfig, applicationDataName) {
+		t.Fatalf("installed base = %q, error = %v", got, err)
+	}
+}
+
+func TestResolveBaseDirMigratesLegacyConfiguration(t *testing.T) {
+	root := t.TempDir()
+	executableDir := filepath.Join(root, "legacy-install")
+	userConfig := filepath.Join(root, "user-config")
+	legacyConfig := filepath.Join(executableDir, "configs")
+	if err := os.MkdirAll(legacyConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyConfig, "projects.yaml"), []byte("projects: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(executableDir, installedMarkerName), []byte("installed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	base, err := resolveBaseDir("", root, filepath.Join(executableDir, "moonman-release.exe"), userConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base != filepath.Join(userConfig, applicationDataName) {
+		t.Fatalf("base = %q, want AppData base", base)
+	}
+	if _, err := os.Stat(filepath.Join(base, "configs", "projects.yaml")); err != nil {
+		t.Fatalf("legacy configuration was not migrated: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(executableDir, "configs", "projects.yaml")); err != nil {
+		t.Fatalf("legacy configuration was removed: %v", err)
+	}
+}
+
 func TestLoadInitializesEmptyConfiguration(t *testing.T) {
 	paths := testPaths(t)
 	service := NewService(paths, logging.New(paths.LogFile))

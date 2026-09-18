@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +16,13 @@ import (
 	"gopkg.in/yaml.v3"
 	"release-launcher/backend/logging"
 	"release-launcher/backend/models"
+)
+
+const (
+	dataDirectoryEnvironment = "RELEASE_LAUNCHER_DATA_DIR"
+	portableMarkerName       = "moonman-release.portable"
+	installedMarkerName      = "moonman-release.installed"
+	applicationDataName      = "MoonmanRelease"
 )
 
 // Paths contains all application-local persistent paths.
@@ -31,25 +40,75 @@ type Paths struct {
 	ReleaseDir      string
 }
 
-// ResolvePaths selects the repository/app directory, with an override for tests and installations.
+// ResolvePaths selects the persistent data directory. Explicit overrides remain
+// supported for tests and managed installations. A portable marker keeps a
+// portable build self-contained; installed builds use the per-user config
+// directory so upgrades do not require write access to the installation folder.
 func ResolvePaths() (Paths, error) {
-	baseDir := strings.TrimSpace(os.Getenv("RELEASE_LAUNCHER_DATA_DIR"))
-	if baseDir == "" {
-		workingDir, err := os.Getwd()
-		if err != nil {
-			return Paths{}, fmt.Errorf("get working directory: %w", err)
-		}
-		if _, err := os.Stat(filepath.Join(workingDir, "configs")); err == nil {
-			baseDir = workingDir
-		} else {
-			executable, err := os.Executable()
-			if err != nil {
-				return Paths{}, fmt.Errorf("get executable path: %w", err)
-			}
-			baseDir = filepath.Dir(executable)
-		}
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return Paths{}, fmt.Errorf("get working directory: %w", err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return Paths{}, fmt.Errorf("get executable path: %w", err)
+	}
+	userConfigDir, err := os.UserConfigDir()
+	if err != nil {
+		return Paths{}, fmt.Errorf("get user config directory: %w", err)
+	}
+	baseDir, err := resolveBaseDir(
+		os.Getenv(dataDirectoryEnvironment),
+		workingDir,
+		executable,
+		userConfigDir,
+	)
+	if err != nil {
+		return Paths{}, err
+	}
+	return pathsForBase(baseDir)
+}
+
+func resolveBaseDir(override, workingDir, executablePath, userConfigDir string) (string, error) {
+	if baseDir := strings.TrimSpace(override); baseDir != "" {
+		return filepath.Abs(baseDir)
 	}
 
+	workingDir, err := filepath.Abs(workingDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve working directory: %w", err)
+	}
+	executableDir, err := filepath.Abs(filepath.Dir(executablePath))
+	if err != nil {
+		return "", fmt.Errorf("resolve executable directory: %w", err)
+	}
+
+	// Keep repository-based development workflows using their local configs.
+	if isDevelopmentWorkspace(workingDir) {
+		return workingDir, nil
+	}
+
+	if fileExists(filepath.Join(executableDir, portableMarkerName)) {
+		return executableDir, nil
+	}
+	// Older portable builds did not have a marker. Preserve their adjacent data
+	// unless the installer has explicitly marked the directory as installed.
+	if directoryExists(filepath.Join(executableDir, "configs")) && !fileExists(filepath.Join(executableDir, installedMarkerName)) {
+		return executableDir, nil
+	}
+
+	userConfigDir = strings.TrimSpace(userConfigDir)
+	if userConfigDir == "" {
+		return "", errors.New("user config directory is unavailable")
+	}
+	appDataDir := filepath.Join(userConfigDir, applicationDataName)
+	if err := migrateLegacyData(executableDir, appDataDir); err != nil {
+		return "", err
+	}
+	return appDataDir, nil
+}
+
+func pathsForBase(baseDir string) (Paths, error) {
 	baseDir, err := filepath.Abs(baseDir)
 	if err != nil {
 		return Paths{}, fmt.Errorf("resolve application directory: %w", err)
@@ -69,6 +128,73 @@ func ResolvePaths() (Paths, error) {
 		ActivityLogFile: filepath.Join(logDir, "activity.jsonl"),
 		ReleaseDir:      filepath.Join(baseDir, "releases"),
 	}, nil
+}
+
+func isDevelopmentWorkspace(directory string) bool {
+	return directoryExists(filepath.Join(directory, "configs")) &&
+		(fileExists(filepath.Join(directory, "go.mod")) || fileExists(filepath.Join(directory, "wails.json")))
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func directoryExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+func migrateLegacyData(legacyBase, targetBase string) error {
+	legacyConfig := filepath.Join(legacyBase, "configs", "projects.yaml")
+	targetConfig := filepath.Join(targetBase, "configs", "projects.yaml")
+	if !fileExists(legacyConfig) || fileExists(targetConfig) {
+		return nil
+	}
+
+	if err := copyDirectory(filepath.Join(legacyBase, "configs"), filepath.Join(targetBase, "configs")); err != nil {
+		return fmt.Errorf("migrate legacy configuration: %w", err)
+	}
+	legacyLogs := filepath.Join(legacyBase, "logs")
+	if directoryExists(legacyLogs) {
+		if err := copyDirectory(legacyLogs, filepath.Join(targetBase, "logs")); err != nil {
+			return fmt.Errorf("migrate legacy logs: %w", err)
+		}
+	}
+	return nil
+}
+
+func copyDirectory(source, destination string) error {
+	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(destination, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		input, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer input.Close()
+		output, err := os.Create(target)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(output, input); err != nil {
+			_ = output.Close()
+			return err
+		}
+		return output.Close()
+	})
 }
 
 // Service owns the validated in-memory project configuration and its persistence.
