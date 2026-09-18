@@ -34,6 +34,14 @@ export function GetTransferPlan(arg1) {
   return window['go']['app']['App']['GetTransferPlan'](arg1);
 }
 
+export function PickDirectory(arg1) {
+  return window['go']['app']['App']['PickDirectory'](arg1);
+}
+
+export function PickFile(arg1) {
+  return window['go']['app']['App']['PickFile'](arg1);
+}
+
 export function SaveDaliConfig(arg1) {
   return window['go']['app']['App']['SaveDaliConfig'](arg1);
 }

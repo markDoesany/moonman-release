@@ -15,6 +15,7 @@ import (
 
 	"release-launcher/backend/logging"
 	"release-launcher/backend/models"
+	"release-launcher/backend/pathutil"
 )
 
 const (
@@ -30,6 +31,9 @@ const (
 
 var invalidPathSegment = regexp.MustCompile(`[<>:"/\\|?*]`)
 var validVersion = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+var tokenPattern = regexp.MustCompile(`\{([a-z]+)\}`)
+
+const DefaultFilenameTemplate = models.DefaultPackageFilenameTemplate
 
 // EventSink receives packaging events without coupling this service to Wails.
 type EventSink func(models.BuildEvent)
@@ -47,6 +51,13 @@ func NewService(logger *logging.Logger, history *logging.JSONLWriter, releaseRoo
 
 // Plan calculates package paths and detects overwrite conflicts without writing files.
 func (s *Service) Plan(project models.Project, componentIDs []string, version string) (models.PackagePlan, error) {
+	return s.PlanRequest(project, models.PackageRequest{ProjectID: project.ID, ComponentIDs: componentIDs, Version: version})
+}
+
+// PlanRequest resolves a single timestamp for all selected packages. Explicit
+// PackageNames are the edits approved in the naming preview.
+func (s *Service) PlanRequest(project models.Project, request models.PackageRequest) (models.PackagePlan, error) {
+	componentIDs := request.ComponentIDs
 	selected := make(map[string]bool, len(componentIDs))
 	for _, id := range componentIDs {
 		id = strings.TrimSpace(id)
@@ -57,7 +68,7 @@ func (s *Service) Plan(project models.Project, componentIDs []string, version st
 	if len(selected) == 0 {
 		return models.PackagePlan{}, errors.New("select at least one component to package")
 	}
-	version, err := normalizeVersion(version)
+	version, err := normalizeVersion(request.Version)
 	if err != nil {
 		return models.PackagePlan{}, err
 	}
@@ -65,23 +76,41 @@ func (s *Service) Plan(project models.Project, componentIDs []string, version st
 	known := make(map[string]bool, len(project.Components))
 	items := make([]models.PackagePlanItem, 0, len(project.Components))
 	releaseDirectory := filepath.Join(s.releaseRoot, safePathSegment(project.Name, project.ID), version)
+	stamp := time.Now()
+	sharedTemplate := strings.TrimSpace(request.FilenameTemplate)
 	for _, component := range project.Components {
 		known[component.ID] = true
+		template := sharedTemplate
+		if template == "" {
+			template = component.Package.Filename
+		}
+		resolved, resolveErr := ResolveFilename(template, project.Name, component.Name, version, stamp)
+		if override, exists := request.PackageNames[component.ID]; exists {
+			resolved = strings.TrimSpace(override)
+			resolveErr = nil
+		}
 		item := models.PackagePlanItem{
-			ComponentID:   component.ID,
-			ComponentName: component.Name,
-			Selected:      selected[component.ID],
-			Enabled:       component.Package.Enabled,
-			SourcePath:    sourcePath(component),
-			PackagePath:   filepath.Join(releaseDirectory, component.Package.Filename),
+			ComponentID:      component.ID,
+			ComponentName:    component.Name,
+			Selected:         selected[component.ID],
+			Enabled:          component.Package.Enabled,
+			SourcePath:       sourcePath(component),
+			FilenameTemplate: template,
+			ResolvedFilename: resolved,
 		}
 		if item.Selected && item.Enabled {
-			if err := validateFilename(component.Package.Filename); err != nil {
+			if resolveErr != nil {
+				return models.PackagePlan{}, fmt.Errorf("component %q: %w", component.Name, resolveErr)
+			}
+			if err := validateFilename(resolved); err != nil {
 				return models.PackagePlan{}, fmt.Errorf("component %q: %w", component.Name, err)
 			}
+			item.PackagePath = filepath.Join(releaseDirectory, resolved)
 			if _, statErr := os.Stat(item.PackagePath); statErr == nil {
 				item.Existing = true
 			}
+		} else if resolveErr == nil {
+			item.PackagePath = filepath.Join(releaseDirectory, resolved)
 		}
 		items = append(items, item)
 	}
@@ -92,9 +121,17 @@ func (s *Service) Plan(project models.Project, componentIDs []string, version st
 	}
 
 	conflicts := false
+	seen := make(map[string]string)
 	for _, item := range items {
 		if item.Selected && item.Enabled && item.Existing {
 			conflicts = true
+		}
+		if item.Selected && item.Enabled {
+			key := strings.ToLower(item.ResolvedFilename)
+			if previous, exists := seen[key]; exists {
+				return models.PackagePlan{}, fmt.Errorf("components %q and %q resolve to duplicate package filename %q", previous, item.ComponentName, item.ResolvedFilename)
+			}
+			seen[key] = item.ComponentName
 		}
 	}
 	return models.PackagePlan{
@@ -102,14 +139,72 @@ func (s *Service) Plan(project models.Project, componentIDs []string, version st
 		ProjectName:      project.Name,
 		Version:          version,
 		ReleaseDirectory: releaseDirectory,
+		FilenameTemplate: sharedTemplate,
 		Components:       items,
 		HasConflicts:     conflicts,
 	}, nil
 }
 
+// ResolveFilename expands supported template tokens and validates the final
+// Windows filename. Static filenames continue to work unchanged.
+func ResolveFilename(template, project, component, version string, timestamp time.Time) (string, error) {
+	template = strings.TrimSpace(template)
+	if template == "" {
+		return "", errors.New("package filename or template is required")
+	}
+	if strings.Contains(template, "{") || strings.Contains(template, "}") {
+		matches := tokenPattern.FindAllStringSubmatch(template, -1)
+		template = tokenPattern.ReplaceAllStringFunc(template, func(token string) string {
+			name := tokenPattern.FindStringSubmatch(token)[1]
+			switch name {
+			case "project":
+				return safeFilenameToken(project)
+			case "component":
+				return safeFilenameToken(component)
+			case "version":
+				return safeFilenameToken(version)
+			case "date":
+				return timestamp.Format("20060102")
+			case "time":
+				return timestamp.Format("150405")
+			case "datetime":
+				return timestamp.Format("20060102-150405")
+			default:
+				return token
+			}
+		})
+		if len(matches) == 0 || strings.Contains(template, "{") || strings.Contains(template, "}") {
+			return "", errors.New("package filename contains an unknown or malformed template token")
+		}
+	}
+	if template != strings.TrimRight(template, " .") {
+		return "", errors.New("package filename must not end with a space or period")
+	}
+	if !strings.HasSuffix(strings.ToLower(template), ".zip") {
+		template += ".zip"
+	}
+	if err := validateFilename(template); err != nil {
+		return "", err
+	}
+	return template, nil
+}
+
+func safeFilenameToken(value string) string {
+	value = invalidPathSegment.ReplaceAllString(strings.TrimSpace(value), "_")
+	value = strings.Trim(value, " .")
+	if value == "" {
+		return "item"
+	}
+	return value
+}
+
 // PrepareRun creates initial state for a package-only run.
 func (s *Service) PrepareRun(runID string, project models.Project, componentIDs []string, version string) (models.PackageRun, error) {
-	plan, err := s.Plan(project, componentIDs, version)
+	return s.PrepareRunRequest(runID, project, models.PackageRequest{ProjectID: project.ID, ComponentIDs: componentIDs, Version: version})
+}
+
+func (s *Service) PrepareRunRequest(runID string, project models.Project, request models.PackageRequest) (models.PackageRun, error) {
+	plan, err := s.PlanRequest(project, request)
 	if err != nil {
 		return models.PackageRun{}, err
 	}
@@ -136,7 +231,12 @@ func (s *Service) PrepareRun(runID string, project models.Project, componentIDs 
 
 // Execute packages selected components sequentially and stops on the first failure.
 func (s *Service) Execute(ctx context.Context, run models.PackageRun, project models.Project, componentIDs []string, overwrite bool, emit EventSink) models.PackageRun {
-	plan, err := s.Plan(project, componentIDs, run.Version)
+	return s.ExecuteRequest(ctx, run, project, models.PackageRequest{ProjectID: project.ID, ComponentIDs: componentIDs, Version: run.Version, Overwrite: overwrite}, emit)
+}
+
+func (s *Service) ExecuteRequest(ctx context.Context, run models.PackageRun, project models.Project, request models.PackageRequest, emit EventSink) models.PackageRun {
+	request.Version = run.Version
+	plan, err := s.PlanRequest(project, request)
 	if err != nil {
 		run.Status = models.PackageRunStatusFailed
 		run.Error = err.Error()
@@ -212,7 +312,7 @@ func (s *Service) Execute(ctx context.Context, run models.PackageRun, project mo
 			Timestamp:     time.Now(),
 		})
 
-		result := s.PackageOne(ctx, run.ID, project, component, item.SourcePath, item.PackagePath, overwrite)
+		result := s.packageOne(ctx, run.ID, project, component, item.SourcePath, item.PackagePath, request.Overwrite, item.FilenameTemplate, item.ResolvedFilename, run.Version)
 		state.Result = &result
 		state.Status = result.Status
 		state.Message = result.Error
@@ -254,16 +354,27 @@ func (s *Service) Execute(ctx context.Context, run models.PackageRun, project mo
 
 // PackageOne creates and validates one archive from a successful build output.
 func (s *Service) PackageOne(ctx context.Context, runID string, project models.Project, component models.Component, source, destination string, overwrite bool) models.PackageResult {
+	return s.packageOne(ctx, runID, project, component, source, destination, overwrite, "", filepath.Base(destination), "")
+}
+
+func (s *Service) PackageOneWithMetadata(ctx context.Context, runID string, project models.Project, component models.Component, source, destination string, overwrite bool, filenameTemplate, resolvedFilename, version string) models.PackageResult {
+	return s.packageOne(ctx, runID, project, component, source, destination, overwrite, filenameTemplate, resolvedFilename, version)
+}
+
+func (s *Service) packageOne(ctx context.Context, runID string, project models.Project, component models.Component, source, destination string, overwrite bool, filenameTemplate, resolvedFilename, version string) models.PackageResult {
 	started := time.Now()
 	result := models.PackageResult{
-		ProjectID:     project.ID,
-		ProjectName:   project.Name,
-		ComponentID:   component.ID,
-		ComponentName: component.Name,
-		Status:        models.PackageStatusFailed,
-		SourcePath:    source,
-		PackagePath:   destination,
-		StartTime:     started,
+		ProjectID:        project.ID,
+		ProjectName:      project.Name,
+		ComponentID:      component.ID,
+		ComponentName:    component.Name,
+		Status:           models.PackageStatusFailed,
+		SourcePath:       source,
+		PackagePath:      destination,
+		Version:          version,
+		FilenameTemplate: filenameTemplate,
+		ResolvedFilename: resolvedFilename,
+		StartTime:        started,
 	}
 	finish := func(technical error) models.PackageResult {
 		result.EndTime = time.Now()
@@ -433,21 +544,24 @@ func (s *Service) writeRecord(runID string, result models.PackageResult, technic
 		return
 	}
 	record := models.PackageRecord{
-		Timestamp:     time.Now(),
-		RunID:         runID,
-		ProjectID:     result.ProjectID,
-		ProjectName:   result.ProjectName,
-		ComponentID:   result.ComponentID,
-		ComponentName: result.ComponentName,
-		SourcePath:    result.SourcePath,
-		PackagePath:   result.PackagePath,
-		StartTime:     result.StartTime,
-		EndTime:       result.EndTime,
-		DurationMs:    result.DurationMs,
-		SizeBytes:     result.SizeBytes,
-		Success:       result.Success,
-		Status:        result.Status,
-		Error:         result.Error,
+		Timestamp:        time.Now(),
+		RunID:            runID,
+		ProjectID:        result.ProjectID,
+		ProjectName:      result.ProjectName,
+		ComponentID:      result.ComponentID,
+		ComponentName:    result.ComponentName,
+		SourcePath:       result.SourcePath,
+		PackagePath:      result.PackagePath,
+		Version:          result.Version,
+		FilenameTemplate: result.FilenameTemplate,
+		ResolvedFilename: result.ResolvedFilename,
+		StartTime:        result.StartTime,
+		EndTime:          result.EndTime,
+		DurationMs:       result.DurationMs,
+		SizeBytes:        result.SizeBytes,
+		Success:          result.Success,
+		Status:           result.Status,
+		Error:            result.Error,
 	}
 	if technical != nil {
 		record.TechnicalError = technical.Error()
@@ -516,9 +630,9 @@ func packageResults(run models.PackageRun) []models.PackageResult {
 }
 
 func sourcePath(component models.Component) string {
-	path, err := filepath.Abs(filepath.Join(component.Path, component.OutputDirectory))
+	path, err := filepath.Abs(pathutil.Resolve(component.Path, component.OutputDirectory))
 	if err != nil {
-		return filepath.Clean(filepath.Join(component.Path, component.OutputDirectory))
+		return filepath.Clean(pathutil.Resolve(component.Path, component.OutputDirectory))
 	}
 	return filepath.Clean(path)
 }
@@ -545,9 +659,19 @@ func safePathSegment(value, fallback string) string {
 }
 
 func validateFilename(filename string) error {
+	original := filename
 	filename = strings.TrimSpace(filename)
-	if filename == "" || filename == "." || filename == ".." || filepath.Base(filename) != filename || invalidPathSegment.MatchString(filename) {
+	if filename == "" || filename == "." || filename == ".." || filepath.Base(filename) != filename || invalidPathSegment.MatchString(filename) || original != strings.TrimRight(original, " .") {
 		return errors.New("package filename must be a simple file name without path separators or invalid Windows characters")
+	}
+	base := strings.ToUpper(strings.SplitN(filename, ".", 2)[0])
+	if base == "CON" || base == "PRN" || base == "AUX" || base == "NUL" || (len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '1' && base[3] <= '9') {
+		return errors.New("package filename uses a reserved Windows device name")
+	}
+	for _, character := range filename {
+		if character < 32 {
+			return errors.New("package filename contains an invalid control character")
+		}
 	}
 	return nil
 }

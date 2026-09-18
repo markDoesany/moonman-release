@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -145,6 +147,48 @@ func (a *App) SaveDaliConfig(settings models.DaliConfig) (models.DaliConfig, err
 	return a.config.SaveDaliConfig(settings)
 }
 
+// PickDirectory opens the native directory picker. An empty result means the
+// user cancelled and is intentionally not an error.
+func (a *App) PickDirectory(initialPath string) (string, error) {
+	ctx := a.runtimeCtx
+	if ctx == nil {
+		return "", errors.New("native dialogs are unavailable before application startup")
+	}
+	initialPath = dialogDirectory(initialPath)
+	return runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{Title: "Select directory", DefaultDirectory: initialPath})
+}
+
+// PickFile opens the native file picker. An empty result means the user
+// cancelled and leaves the current text field unchanged.
+func (a *App) PickFile(initialPath string) (string, error) {
+	ctx := a.runtimeCtx
+	if ctx == nil {
+		return "", errors.New("native dialogs are unavailable before application startup")
+	}
+	options := runtime.OpenDialogOptions{Title: "Select file"}
+	if info, err := os.Stat(initialPath); err == nil && !info.IsDir() {
+		options.DefaultDirectory = filepath.Dir(initialPath)
+		options.DefaultFilename = filepath.Base(initialPath)
+	} else {
+		options.DefaultDirectory = dialogDirectory(initialPath)
+	}
+	return runtime.OpenFileDialog(ctx, options)
+}
+
+func dialogDirectory(value string) string {
+	value = filepath.Clean(value)
+	if info, err := os.Stat(value); err == nil {
+		if info.IsDir() {
+			return value
+		}
+		return filepath.Dir(value)
+	}
+	if value != "." && filepath.Ext(value) != "" {
+		return filepath.Dir(value)
+	}
+	return ""
+}
+
 // GetPackagePlan calculates output paths and overwrite conflicts without writing files.
 func (a *App) GetPackagePlan(request models.PackageRequest) (models.PackagePlan, error) {
 	if a.loadErr != nil {
@@ -157,7 +201,7 @@ func (a *App) GetPackagePlan(request models.PackageRequest) (models.PackagePlan,
 	if err != nil {
 		return models.PackagePlan{}, err
 	}
-	return a.packager.Plan(project, request.ComponentIDs, request.Version)
+	return a.packager.PlanRequest(project, request)
 }
 
 // StartPackage packages already-built output directories sequentially.
@@ -174,7 +218,7 @@ func (a *App) StartPackage(request models.PackageRequest) (models.PackageRun, er
 	if err != nil {
 		return models.PackageRun{}, err
 	}
-	plan, err := a.packager.Plan(project, request.ComponentIDs, request.Version)
+	plan, err := a.packager.PlanRequest(project, request)
 	if err != nil {
 		return models.PackageRun{}, err
 	}
@@ -182,7 +226,8 @@ func (a *App) StartPackage(request models.PackageRequest) (models.PackageRun, er
 		return models.PackageRun{}, errors.New("one or more packages already exist; confirm replacement before packaging")
 	}
 	runID := a.nextRunID()
-	run, err := a.packager.PrepareRun(runID, project, request.ComponentIDs, plan.Version)
+	request.Version = plan.Version
+	run, err := a.packager.PrepareRunRequest(runID, project, request)
 	if err != nil {
 		return models.PackageRun{}, err
 	}
@@ -192,7 +237,7 @@ func (a *App) StartPackage(request models.PackageRequest) (models.PackageRun, er
 	eventContext := a.runtimeCtx
 	a.logger.Info(fmt.Sprintf("Packaging started: %s", project.Name))
 	go func() {
-		finalRun := a.packager.Execute(ctx, run, project, request.ComponentIDs, request.Overwrite, a.eventSink(eventContext))
+		finalRun := a.packager.ExecuteRequest(ctx, run, project, request, a.eventSink(eventContext))
 		if finalRun.Status == models.PackageRunStatusCompleted {
 			a.logger.Info(fmt.Sprintf("Packaging completed: %s", project.Name))
 		} else if finalRun.Status == models.PackageRunStatusCancelled {
@@ -217,7 +262,7 @@ func (a *App) GetTransferPlan(request models.TransferRequest) (models.TransferPl
 	if err != nil {
 		return models.TransferPlan{}, err
 	}
-	return a.transfer.Plan(project, request.ComponentIDs, request.Version)
+	return a.transfer.PlanRequest(project, request)
 }
 
 // StartTransfer sends existing release packages sequentially through Dali.
@@ -234,7 +279,7 @@ func (a *App) StartTransfer(request models.TransferRequest) (models.TransferRun,
 	if err != nil {
 		return models.TransferRun{}, err
 	}
-	plan, err := a.transfer.Plan(project, request.ComponentIDs, request.Version)
+	plan, err := a.transfer.PlanRequest(project, request)
 	if err != nil {
 		return models.TransferRun{}, err
 	}
@@ -283,7 +328,7 @@ func (a *App) StartBuildAndPackage(request models.PackageRequest) (models.Releas
 	if err != nil {
 		return models.ReleaseRun{}, err
 	}
-	plan, err := a.packager.Plan(project, request.ComponentIDs, request.Version)
+	plan, err := a.packager.PlanRequest(project, request)
 	if err != nil {
 		return models.ReleaseRun{}, err
 	}
@@ -328,7 +373,7 @@ func (a *App) StartBuildPackageAndSend(request models.PackageRequest) (models.Re
 	if err != nil {
 		return models.ReleaseRun{}, err
 	}
-	plan, err := a.packager.Plan(project, request.ComponentIDs, request.Version)
+	plan, err := a.packager.PlanRequest(project, request)
 	if err != nil {
 		return models.ReleaseRun{}, err
 	}

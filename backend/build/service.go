@@ -11,6 +11,7 @@ import (
 
 	"release-launcher/backend/logging"
 	"release-launcher/backend/models"
+	"release-launcher/backend/pathutil"
 )
 
 const (
@@ -378,9 +379,9 @@ func skipRemaining(states []models.BuildComponentState, reason string, sink Even
 }
 
 func outputPath(component models.Component) string {
-	path, err := filepath.Abs(filepath.Join(component.Path, component.OutputDirectory))
+	path, err := filepath.Abs(pathutil.Resolve(component.Path, component.OutputDirectory))
 	if err != nil {
-		return filepath.Join(component.Path, component.OutputDirectory)
+		return pathutil.Resolve(component.Path, component.OutputDirectory)
 	}
 	return filepath.Clean(path)
 }

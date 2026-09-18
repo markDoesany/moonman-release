@@ -25,6 +25,8 @@ type PackageConfig struct {
 	Filename string `yaml:"filename" json:"filename"`
 }
 
+const DefaultPackageFilenameTemplate = "{project}-{component}-v{version}-{date}.zip"
+
 // UnmarshalYAML accepts both the Phase 3 nested package format and the Phase 1
 // flat fields so existing project files continue to load safely.
 func (c *Component) UnmarshalYAML(value *yaml.Node) error {

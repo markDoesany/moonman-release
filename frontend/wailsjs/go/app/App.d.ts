@@ -18,6 +18,10 @@ export function GetProjects():Promise<Array<models.Project>>;
 
 export function GetTransferPlan(arg1:models.TransferRequest):Promise<models.TransferPlan>;
 
+export function PickDirectory(arg1:string):Promise<string>;
+
+export function PickFile(arg1:string):Promise<string>;
+
 export function SaveDaliConfig(arg1:models.DaliConfig):Promise<models.DaliConfig>;
 
 export function SaveProject(arg1:models.Project):Promise<models.Project>;

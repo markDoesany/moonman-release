@@ -6,6 +6,8 @@ import {
   GetTransferPlan as generatedGetTransferPlan,
   GetProject as generatedGetProject,
   GetProjects as generatedGetProjects,
+  PickDirectory as generatedPickDirectory,
+  PickFile as generatedPickFile,
   SaveDaliConfig as generatedSaveDaliConfig,
   SaveProject as generatedSaveProject,
   StartBuildAndPackage as generatedStartBuildAndPackage,
@@ -24,6 +26,8 @@ export const GetPackagePlan = (request: PackageRequest): Promise<PackagePlan> =>
 export const GetTransferPlan = (request: TransferRequest): Promise<TransferPlan> => generatedGetTransferPlan(request as unknown as Parameters<typeof generatedGetTransferPlan>[0]) as Promise<TransferPlan>;
 export const GetProject = (id: string): Promise<Project> => generatedGetProject(id) as Promise<Project>;
 export const GetProjects = (): Promise<Project[]> => generatedGetProjects() as Promise<Project[]>;
+export const PickDirectory = (initialPath: string): Promise<string> => generatedPickDirectory(initialPath);
+export const PickFile = (initialPath: string): Promise<string> => generatedPickFile(initialPath);
 export const SaveProject = (project: Project): Promise<Project> => generatedSaveProject(project as unknown as Parameters<typeof generatedSaveProject>[0]) as Promise<Project>;
 export const StartBuild = (request: BuildRequest): Promise<BuildRun> => generatedStartBuild(request as unknown as Parameters<typeof generatedStartBuild>[0]) as Promise<BuildRun>;
 export const StartPackage = (request: PackageRequest): Promise<PackageRun> => generatedStartPackage(request as unknown as Parameters<typeof generatedStartPackage>[0]) as Promise<PackageRun>;

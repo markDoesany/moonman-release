@@ -113,6 +113,8 @@ export type TransferRequest = {
   projectId: string;
   componentIds: string[];
   version: string;
+  filenameTemplate?: string;
+  packageNames?: Record<string, string>;
 };
 
 export type TransferPlanItem = {
@@ -121,6 +123,8 @@ export type TransferPlanItem = {
   selected: boolean;
   enabled: boolean;
   packagePath: string;
+  filenameTemplate?: string;
+  resolvedFilename?: string;
   exists: boolean;
   error?: string;
 };
@@ -131,6 +135,7 @@ export type TransferPlan = {
   version: string;
   components: TransferPlanItem[];
   hasMissing: boolean;
+  filenameTemplate: string;
 };
 
 export type TransferResult = {
@@ -181,6 +186,8 @@ export type PackageRequest = {
   componentIds: string[];
   version: string;
   overwrite: boolean;
+  filenameTemplate?: string;
+  packageNames?: Record<string, string>;
 };
 
 export type PackagePlanItem = {
@@ -190,6 +197,8 @@ export type PackagePlanItem = {
   enabled: boolean;
   sourcePath: string;
   packagePath: string;
+  filenameTemplate?: string;
+  resolvedFilename?: string;
   existing: boolean;
   error?: string;
 };
@@ -201,6 +210,7 @@ export type PackagePlan = {
   releaseDirectory: string;
   components: PackagePlanItem[];
   hasConflicts: boolean;
+  filenameTemplate: string;
 };
 
 export type PackageResult = {

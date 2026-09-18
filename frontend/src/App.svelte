@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { EventsOn } from '../wailsjs/runtime/runtime';
-  import { CancelBuild, DeleteProject, GetDaliConfig, GetPackagePlan, GetProjects, GetTransferPlan, SaveDaliConfig, SaveProject, StartBuild, StartBuildAndPackage, StartBuildPackageAndSend, StartPackage, StartTransfer } from './backend';
-  import type { BuildEvent, BuildOutputLine, BuildRun, Component, DaliConfig, PackageRun, PackageRequest, Project, ReleaseRun, TransferPlan, TransferRequest, TransferRun, ValidationIssue } from './types';
+  import { CancelBuild, DeleteProject, GetDaliConfig, GetPackagePlan, GetProjects, GetTransferPlan, PickDirectory, PickFile, SaveDaliConfig, SaveProject, StartBuild, StartBuildAndPackage, StartBuildPackageAndSend, StartPackage, StartTransfer } from './backend';
+  import type { BuildEvent, BuildOutputLine, BuildRun, Component, DaliConfig, PackagePlan, PackageRun, PackageRequest, Project, ReleaseRun, TransferRequest, TransferRun, ValidationIssue } from './types';
 
   type View = 'launcher' | 'settings';
   type Operation = 'build' | 'package' | 'transfer' | 'release' | 'release-transfer';
@@ -25,6 +25,11 @@
   let releaseRun: ReleaseRun | null = null;
   let daliConfig: DaliConfig = { executable: 'dali', peerName: '', peerAddress: '', auto: true, wait: false };
   let packageVersion = '1.0.0';
+  let packageTemplate = '';
+  let namingPlan: PackagePlan | null = null;
+  let namingNames: Record<string, string> = {};
+  let namingError = '';
+  let namingRefresh = 0;
   let buildOutput: BuildOutputLine[] = [];
   let pendingBuildEvents: BuildEvent[] = [];
   let errorMessage = '';
@@ -32,7 +37,8 @@
   let issues: ValidationIssue[] = [];
 
   $: selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
-  $: operationActive = operationStarting || buildRun?.status === 'running' || packageRun?.status === 'running' || transferRun?.status === 'running' || releaseRun?.status === 'running';
+  $: operationRunning = (operationStarting && namingPlan === null) || buildRun?.status === 'running' || packageRun?.status === 'running' || transferRun?.status === 'running' || releaseRun?.status === 'running';
+  $: operationActive = operationRunning || namingPlan !== null;
 
   onMount(() => {
     const stopListening = EventsOn('release-launcher:build-event', (event: BuildEvent) => handleBuildEvent(event));
@@ -80,6 +86,9 @@
     packageRun = null;
     transferRun = null;
     releaseRun = null;
+    namingPlan = null;
+    namingNames = {};
+    namingError = '';
   }
 
   function finishStarting(queuedEvents: BuildEvent[]) {
@@ -104,97 +113,110 @@
     }
   }
 
-  async function startPackageExisting() {
+  function packageRequest(overwrite = false): PackageRequest {
+    return { projectId: selectedProject?.id ?? '', componentIds: selectedComponentIds, version: packageVersion, overwrite, filenameTemplate: packageTemplate.trim(), packageNames: { ...namingNames } };
+  }
+
+  async function beginNaming(kind: Operation) {
     if (!selectedProject || operationActive) return;
     if (selectedComponentIds.length === 0) {
-      errorMessage = 'Select at least one component to package.';
+      errorMessage = kind === 'transfer' ? 'Select at least one component to send.' : 'Select at least one component for the release workflow.';
       return;
     }
-    prepareOperation('package');
+    errorMessage = '';
+    successMessage = '';
+    buildOutput = [];
+    pendingBuildEvents = [];
+    operation = kind;
+    operationStarting = true;
+    buildRun = null;
+    packageRun = null;
+    transferRun = null;
+    releaseRun = null;
     try {
-      const initialRequest: PackageRequest = { projectId: selectedProject.id, componentIds: selectedComponentIds, version: packageVersion, overwrite: false };
-      const plan = await GetPackagePlan(initialRequest);
-      const overwrite = await confirmOverwrite(plan.hasConflicts, plan.releaseDirectory);
-      if (overwrite === null) {
-        operationStarting = false;
-        operation = null;
-        return;
+      const plan = await GetPackagePlan({ ...packageRequest(), packageNames: {} });
+      if (kind === 'transfer') {
+        const transferPlan = await GetTransferPlan({ ...packageRequest(), packageNames: Object.fromEntries(plan.components.filter((item) => item.selected && item.enabled).map((item) => [item.componentId, item.resolvedFilename ?? ''])) } as TransferRequest);
+        if (transferPlan.hasMissing) throw new Error('One or more selected packages do not exist. Package them before sending.');
       }
-      packageRun = await StartPackage({ ...initialRequest, overwrite });
-      finishStarting(pendingBuildEvents);
+      namingPlan = plan;
+      namingNames = Object.fromEntries(plan.components.filter((item) => item.selected && item.enabled).map((item) => [item.componentId, item.resolvedFilename ?? '']));
     } catch (error) {
       operationStarting = false;
+      operation = null;
       errorMessage = readableError(error);
     }
+  }
+
+  async function editPackageName(componentId: string, value: string) {
+    namingNames = { ...namingNames, [componentId]: value };
+    namingError = '';
+    const refresh = ++namingRefresh;
+    try {
+      const refreshed = await GetPackagePlan({ ...packageRequest(false), packageNames: { ...namingNames } });
+      if (refresh === namingRefresh) namingPlan = refreshed;
+    } catch (error) {
+      if (refresh === namingRefresh) namingError = readableError(error);
+    }
+  }
+
+  async function confirmNaming() {
+    if (!selectedProject || !namingPlan || !operation) return;
+    try {
+      namingError = '';
+      const names = { ...namingNames };
+      const request = { ...packageRequest(false), packageNames: names };
+      const refreshed = await GetPackagePlan(request);
+      if (operation === 'transfer') {
+        const transferPlan = await GetTransferPlan(request as TransferRequest);
+        if (transferPlan.hasMissing) throw new Error('One or more selected packages do not exist. Package them before sending.');
+      }
+      namingPlan = refreshed;
+      namingNames = Object.fromEntries(refreshed.components.filter((item) => item.selected && item.enabled).map((item) => [item.componentId, item.resolvedFilename ?? '']));
+      if (refreshed.hasConflicts && operation !== 'transfer') {
+        const overwrite = await confirmOverwrite(true, refreshed.releaseDirectory);
+        if (overwrite === null) return;
+        await startApproved(request, overwrite);
+      } else {
+        await startApproved(request, false);
+      }
+    } catch (error) {
+      namingError = readableError(error);
+    }
+  }
+
+  async function startApproved(request: PackageRequest, overwrite: boolean) {
+    const approved = { ...request, overwrite };
+    namingPlan = null;
+    if (operation === 'package') packageRun = await StartPackage(approved);
+    else if (operation === 'release') releaseRun = await StartBuildAndPackage(approved);
+    else if (operation === 'release-transfer') releaseRun = await StartBuildPackageAndSend(approved);
+    else if (operation === 'transfer') transferRun = await StartTransfer(approved as TransferRequest);
+    finishStarting(pendingBuildEvents);
+  }
+
+  function cancelNaming() {
+    namingPlan = null;
+    namingNames = {};
+    operationStarting = false;
+    operation = null;
+    namingError = '';
+  }
+
+  async function startPackageExisting() {
+    await beginNaming('package');
   }
 
   async function startTransferExisting() {
-    if (!selectedProject || operationActive) return;
-    if (selectedComponentIds.length === 0) {
-      errorMessage = 'Select at least one component to send.';
-      return;
-    }
-    prepareOperation('transfer');
-    try {
-      const request: TransferRequest = { projectId: selectedProject.id, componentIds: selectedComponentIds, version: packageVersion };
-      const plan: TransferPlan = await GetTransferPlan(request);
-      if (plan.hasMissing) {
-        throw new Error('One or more selected packages do not exist. Package them before sending.');
-      }
-      transferRun = await StartTransfer(request);
-      finishStarting(pendingBuildEvents);
-    } catch (error) {
-      operationStarting = false;
-      errorMessage = readableError(error);
-    }
+    await beginNaming('transfer');
   }
 
   async function startBuildAndPackage() {
-    if (!selectedProject || operationActive) return;
-    if (selectedComponentIds.length === 0) {
-      errorMessage = 'Select at least one component to build and package.';
-      return;
-    }
-    prepareOperation('release');
-    try {
-      const initialRequest: PackageRequest = { projectId: selectedProject.id, componentIds: selectedComponentIds, version: packageVersion, overwrite: false };
-      const plan = await GetPackagePlan(initialRequest);
-      const overwrite = await confirmOverwrite(plan.hasConflicts, plan.releaseDirectory);
-      if (overwrite === null) {
-        operationStarting = false;
-        operation = null;
-        return;
-      }
-      releaseRun = await StartBuildAndPackage({ ...initialRequest, overwrite });
-      finishStarting(pendingBuildEvents);
-    } catch (error) {
-      operationStarting = false;
-      errorMessage = readableError(error);
-    }
+    await beginNaming('release');
   }
 
   async function startBuildPackageAndSend() {
-    if (!selectedProject || operationActive) return;
-    if (selectedComponentIds.length === 0) {
-      errorMessage = 'Select at least one component to build, package, and send.';
-      return;
-    }
-    prepareOperation('release-transfer');
-    try {
-      const initialRequest: PackageRequest = { projectId: selectedProject.id, componentIds: selectedComponentIds, version: packageVersion, overwrite: false };
-      const plan = await GetPackagePlan(initialRequest);
-      const overwrite = await confirmOverwrite(plan.hasConflicts, plan.releaseDirectory);
-      if (overwrite === null) {
-        operationStarting = false;
-        operation = null;
-        return;
-      }
-      releaseRun = await StartBuildPackageAndSend({ ...initialRequest, overwrite });
-      finishStarting(pendingBuildEvents);
-    } catch (error) {
-      operationStarting = false;
-      errorMessage = readableError(error);
-    }
+    await beginNaming('release-transfer');
   }
 
   async function confirmOverwrite(hasConflicts: boolean, releaseDirectory: string): Promise<boolean | null> {
@@ -411,13 +433,50 @@
     settingsProject = { ...settingsProject, components: settingsProject.components.map((component, componentIndex) => componentIndex === index ? { ...component, ...changes } : component) };
   }
 
+  async function browseProjectPath(index: number) {
+    if (!settingsProject || operationActive) return;
+    try {
+      const selected = await PickDirectory(settingsProject.components[index].path);
+      if (selected) updateComponent(index, { path: selected });
+    } catch (error) { errorMessage = readableError(error); }
+  }
+
+  async function browseOutputDirectory(index: number) {
+    if (!settingsProject || operationActive) return;
+    const component = settingsProject.components[index];
+    try {
+      const selected = await PickDirectory(joinPath(component.path, component.outputDirectory));
+      if (selected) updateComponent(index, { outputDirectory: relativeIfInside(component.path, selected) });
+    } catch (error) { errorMessage = readableError(error); }
+  }
+
+  async function browseDaliExecutable() {
+    if (operationActive) return;
+    try {
+      const selected = await PickFile(daliConfig.executable);
+      if (selected) daliConfig = { ...daliConfig, executable: selected };
+    } catch (error) { errorMessage = readableError(error); }
+  }
+
+  function normalizePath(value: string): string { return value.trim().replaceAll('/', '\\').replace(/[\\]+$/, ''); }
+  function joinPath(base: string, child: string): string { if (!child.trim()) return base; return /^[A-Za-z]:[\\/]|^[\\\\]/.test(child) ? child : `${base.replace(/[\\/]+$/, '')}\\${child}`; }
+  function relativeIfInside(base: string, selected: string): string {
+    const normalizedBase = normalizePath(base);
+    const normalizedSelected = normalizePath(selected);
+    const lowerBase = normalizedBase.toLowerCase();
+    const lowerSelected = normalizedSelected.toLowerCase();
+    if (lowerSelected === lowerBase) return '.';
+    if (lowerSelected.startsWith(`${lowerBase}\\`)) return normalizedSelected.slice(normalizedBase.length + 1);
+    return selected;
+  }
+
   function removeComponent(index: number) {
     if (!settingsProject || operationActive) return;
     settingsProject = { ...settingsProject, components: settingsProject.components.filter((_, componentIndex) => componentIndex !== index) };
   }
 
   function emptyComponent(): Component {
-    return { id: '', name: '', path: '', buildCommand: '', outputDirectory: '', package: { enabled: true, filename: '' } };
+    return { id: '', name: '', path: '', buildCommand: '', outputDirectory: '', package: { enabled: true, filename: '{project}-{component}-v{version}-{date}.zip' } };
   }
 
   function statusLabel(status: string): string { return status.charAt(0).toUpperCase() + status.slice(1); }
@@ -458,6 +517,7 @@
           </select>
         </label>
         <label class="field version-field"><span>Release Version</span><input value={packageVersion} disabled={operationActive} on:input={(event) => (packageVersion = inputValue(event))} placeholder="1.0.0" /></label>
+        <label class="field template-field"><span>Package naming template</span><input value={packageTemplate} disabled={operationActive} on:input={(event) => (packageTemplate = inputValue(event))} placeholder="Use component templates" /><small>&#123;project&#125; &#123;component&#125; &#123;version&#125; &#123;date&#125; &#123;time&#125; &#123;datetime&#125;</small></label>
       </div>
 
       {#if selectedProject}
@@ -481,6 +541,19 @@
         <button class="text-button clear-button" disabled={operationActive || buildOutput.length === 0} on:click={clearOutput}>Clear Output</button>
       </div>
       <p class="phase-note">Packages are written to releases/{selectedProject?.name ?? 'Project'}/{packageVersion || 'timestamp'} and sent through Dali to {daliConfig.peerName || daliConfig.peerAddress || 'an automatically selected peer'}.</p>
+
+      {#if namingPlan}
+        <section class="naming-panel">
+          <div class="section-heading compact"><div><p class="eyebrow">Naming preview</p><h3>Review package names before {operation === 'transfer' ? 'sending' : 'starting'}</h3><p>Tokens: &#123;project&#125; &#123;component&#125; &#123;version&#125; &#123;date&#125; &#123;time&#125; &#123;datetime&#125;</p></div><span class="run-status">{namingPlan.version}</span></div>
+          <div class="naming-table"><div class="naming-row naming-header"><strong>Component</strong><strong>Resolved filename</strong><strong>Release path / conflict</strong></div>
+            {#each namingPlan.components.filter((item) => item.selected && item.enabled) as item}
+              <div class="naming-row"><strong>{item.componentName}</strong><label class="inline-field"><span class="sr-only">Filename for {item.componentName}</span><input value={namingNames[item.componentId] ?? item.resolvedFilename ?? ''} on:input={(event) => editPackageName(item.componentId, inputValue(event))} /></label><div><code>{namingPlan.releaseDirectory}\{namingNames[item.componentId] ?? item.resolvedFilename}</code>{#if item.existing}<small class="conflict">Existing file will be replaced after confirmation</small>{:else}<small class="available">Available</small>{/if}</div></div>
+            {/each}
+          </div>
+          {#if namingError}<div class="validation-box naming-error">{namingError}</div>{/if}
+          <div class="action-row naming-actions"><button class="secondary-button" on:click={cancelNaming}>Cancel</button><button class="primary-button" on:click={confirmNaming}>Confirm naming &amp; continue</button></div>
+        </section>
+      {/if}
 
       {#if buildRun}
         <section class="build-panel"><div class="section-heading compact"><div><p class="eyebrow">Build Progress</p><h3>{buildRun.projectName}</h3></div><span class="run-status">{statusLabel(buildRun.status)}</span></div>
@@ -511,17 +584,17 @@
         <div class="section-heading compact components-heading"><div><h3>Components</h3><p>Configure build and package inputs.</p></div><button class="text-button" disabled={operationActive} on:click={addComponent}>+ Add component</button></div>
         {#each settingsProject.components as component, index}<article class="component-editor"><div class="component-editor-title"><h3>{component.name || 'New component'}</h3><button class="remove-button" disabled={operationActive} on:click={() => removeComponent(index)}>Remove</button></div><div class="form-grid">
           <label class="field"><span>Component Name</span><input disabled={operationActive} value={component.name} on:input={(event) => updateComponent(index, { name: inputValue(event) })} /></label>
-          <label class="field"><span>Project Path</span><input disabled={operationActive} value={component.path} on:input={(event) => updateComponent(index, { path: inputValue(event) })} placeholder="C:\Projects\LokalStore\Admin" /></label>
+          <div class="field"><span>Component Project Path</span><div class="input-action"><input disabled={operationActive} value={component.path} on:input={(event) => updateComponent(index, { path: inputValue(event) })} placeholder="C:\Projects\LokalStore\Admin" /><button class="secondary-button" disabled={operationActive} on:click={() => browseProjectPath(index)}>Browse</button></div></div>
           <label class="field"><span>Build Command</span><input disabled={operationActive} value={component.buildCommand} on:input={(event) => updateComponent(index, { buildCommand: inputValue(event) })} placeholder="npm run build" /></label>
-          <label class="field"><span>Output Directory</span><input disabled={operationActive} value={component.outputDirectory} on:input={(event) => updateComponent(index, { outputDirectory: inputValue(event) })} placeholder="build" /></label>
+          <div class="field"><span>Component Output Directory</span><div class="input-action"><input disabled={operationActive} value={component.outputDirectory} on:input={(event) => updateComponent(index, { outputDirectory: inputValue(event) })} placeholder="build or an absolute path" /><button class="secondary-button" disabled={operationActive} on:click={() => browseOutputDirectory(index)}>Browse</button></div><small class="field-help">Folders inside the project are saved as relative paths.</small></div>
           <label class="field checkbox-field"><input type="checkbox" disabled={operationActive} checked={component.package.enabled} on:change={(event) => updateComponent(index, { package: { ...component.package, enabled: checkedValue(event) } })} /><span>Package Enabled</span></label>
-          <label class="field"><span>Package Filename</span><input disabled={operationActive} value={component.package.filename} on:input={(event) => updateComponent(index, { package: { ...component.package, filename: inputValue(event) } })} placeholder="component.zip" /></label>
+          <label class="field"><span>Package Filename Template</span><input disabled={operationActive} value={component.package.filename} on:input={(event) => updateComponent(index, { package: { ...component.package, filename: inputValue(event) } })} placeholder="&#123;project&#125;-&#123;component&#125;-v&#123;version&#125;-&#123;date&#125;.zip" /><small class="field-help">Tokens: &#123;project&#125; &#123;component&#125; &#123;version&#125; &#123;date&#125; &#123;time&#125; &#123;datetime&#125;</small></label>
         </div></article>{:else}<div class="empty-state">No components. Add the first component above.</div>{/each}
         <div class="action-row settings-actions"><button class="secondary-button" disabled={operationActive} on:click={closeSettings}>Cancel</button><button class="primary-button" disabled={saving || operationActive} on:click={saveSettings}>{saving ? 'Saving...' : 'Save Project'}</button></div>
       {:else}<div class="empty-state large">Select a project or add a new one.</div>{/if}
         <section class="dali-settings"><div class="section-heading compact"><div><p class="eyebrow">Dali transfer</p><h3>DevOps destination</h3><p>Configure the installed Dali CLI and the peer that receives release ZIP files.</p></div></div>
           <div class="form-grid">
-            <label class="field"><span>Dali Executable</span><input disabled={operationActive} value={daliConfig.executable} on:input={(event) => (daliConfig = { ...daliConfig, executable: inputValue(event) })} placeholder="dali" /></label>
+            <div class="field"><span>Dali Executable</span><div class="input-action"><input disabled={operationActive} value={daliConfig.executable} on:input={(event) => (daliConfig = { ...daliConfig, executable: inputValue(event) })} placeholder="dali" /><button class="secondary-button" disabled={operationActive} on:click={browseDaliExecutable}>Browse</button></div></div>
             <label class="field"><span>Peer Name</span><input disabled={operationActive} value={daliConfig.peerName} on:input={(event) => (daliConfig = { ...daliConfig, peerName: inputValue(event), peerAddress: '' })} placeholder="DevOps" /></label>
             <label class="field"><span>Peer Address</span><input disabled={operationActive} value={daliConfig.peerAddress} on:input={(event) => (daliConfig = { ...daliConfig, peerAddress: inputValue(event), peerName: '' })} placeholder="192.168.1.20:45679" /></label>
             <label class="field checkbox-field"><input type="checkbox" disabled={operationActive} checked={daliConfig.auto} on:change={(event) => (daliConfig = { ...daliConfig, auto: checkedValue(event) })} /><span>Auto-select a single peer</span></label>

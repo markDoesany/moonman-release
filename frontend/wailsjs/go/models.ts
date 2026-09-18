@@ -240,6 +240,9 @@ export namespace models {
 	    status: string;
 	    sourcePath: string;
 	    packagePath: string;
+	    version: string;
+	    filenameTemplate?: string;
+	    resolvedFilename?: string;
 	    sizeBytes: number;
 	    // Go type: time
 	    startTime: any;
@@ -262,6 +265,9 @@ export namespace models {
 	        this.status = source["status"];
 	        this.sourcePath = source["sourcePath"];
 	        this.packagePath = source["packagePath"];
+	        this.version = source["version"];
+	        this.filenameTemplate = source["filenameTemplate"];
+	        this.resolvedFilename = source["resolvedFilename"];
 	        this.sizeBytes = source["sizeBytes"];
 	        this.startTime = this.convertValues(source["startTime"], null);
 	        this.endTime = this.convertValues(source["endTime"], null);
@@ -335,6 +341,8 @@ export namespace models {
 	    enabled: boolean;
 	    sourcePath: string;
 	    packagePath: string;
+	    filenameTemplate?: string;
+	    resolvedFilename?: string;
 	    existing: boolean;
 	    error?: string;
 	
@@ -350,6 +358,8 @@ export namespace models {
 	        this.enabled = source["enabled"];
 	        this.sourcePath = source["sourcePath"];
 	        this.packagePath = source["packagePath"];
+	        this.filenameTemplate = source["filenameTemplate"];
+	        this.resolvedFilename = source["resolvedFilename"];
 	        this.existing = source["existing"];
 	        this.error = source["error"];
 	    }
@@ -359,6 +369,7 @@ export namespace models {
 	    projectName: string;
 	    version: string;
 	    releaseDirectory: string;
+	    filenameTemplate: string;
 	    components: PackagePlanItem[];
 	    hasConflicts: boolean;
 	
@@ -372,6 +383,7 @@ export namespace models {
 	        this.projectName = source["projectName"];
 	        this.version = source["version"];
 	        this.releaseDirectory = source["releaseDirectory"];
+	        this.filenameTemplate = source["filenameTemplate"];
 	        this.components = this.convertValues(source["components"], PackagePlanItem);
 	        this.hasConflicts = source["hasConflicts"];
 	    }
@@ -400,6 +412,8 @@ export namespace models {
 	    componentIds: string[];
 	    version: string;
 	    overwrite: boolean;
+	    filenameTemplate?: string;
+	    packageNames?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new PackageRequest(source);
@@ -411,6 +425,8 @@ export namespace models {
 	        this.componentIds = source["componentIds"];
 	        this.version = source["version"];
 	        this.overwrite = source["overwrite"];
+	        this.filenameTemplate = source["filenameTemplate"];
+	        this.packageNames = source["packageNames"];
 	    }
 	}
 	
@@ -504,6 +520,9 @@ export namespace models {
 	    success: boolean;
 	    status: string;
 	    packagePath: string;
+	    version: string;
+	    filenameTemplate?: string;
+	    resolvedFilename?: string;
 	    executable: string;
 	    arguments: string[];
 	    peerName?: string;
@@ -529,6 +548,9 @@ export namespace models {
 	        this.success = source["success"];
 	        this.status = source["status"];
 	        this.packagePath = source["packagePath"];
+	        this.version = source["version"];
+	        this.filenameTemplate = source["filenameTemplate"];
+	        this.resolvedFilename = source["resolvedFilename"];
 	        this.executable = source["executable"];
 	        this.arguments = source["arguments"];
 	        this.peerName = source["peerName"];
@@ -704,6 +726,8 @@ export namespace models {
 	    selected: boolean;
 	    enabled: boolean;
 	    packagePath: string;
+	    filenameTemplate?: string;
+	    resolvedFilename?: string;
 	    exists: boolean;
 	    error?: string;
 	
@@ -718,6 +742,8 @@ export namespace models {
 	        this.selected = source["selected"];
 	        this.enabled = source["enabled"];
 	        this.packagePath = source["packagePath"];
+	        this.filenameTemplate = source["filenameTemplate"];
+	        this.resolvedFilename = source["resolvedFilename"];
 	        this.exists = source["exists"];
 	        this.error = source["error"];
 	    }
@@ -726,6 +752,7 @@ export namespace models {
 	    projectId: string;
 	    projectName: string;
 	    version: string;
+	    filenameTemplate: string;
 	    components: TransferPlanItem[];
 	    hasMissing: boolean;
 	
@@ -738,6 +765,7 @@ export namespace models {
 	        this.projectId = source["projectId"];
 	        this.projectName = source["projectName"];
 	        this.version = source["version"];
+	        this.filenameTemplate = source["filenameTemplate"];
 	        this.components = this.convertValues(source["components"], TransferPlanItem);
 	        this.hasMissing = source["hasMissing"];
 	    }
@@ -765,6 +793,8 @@ export namespace models {
 	    projectId: string;
 	    componentIds: string[];
 	    version: string;
+	    filenameTemplate?: string;
+	    packageNames?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new TransferRequest(source);
@@ -775,6 +805,8 @@ export namespace models {
 	        this.projectId = source["projectId"];
 	        this.componentIds = source["componentIds"];
 	        this.version = source["version"];
+	        this.filenameTemplate = source["filenameTemplate"];
+	        this.packageNames = source["packageNames"];
 	    }
 	}
 	

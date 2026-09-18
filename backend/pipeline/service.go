@@ -29,6 +29,10 @@ type componentSender interface {
 	SendOne(context.Context, string, models.Project, models.Component, string, models.DaliConfig, transfer.EventSink) models.TransferResult
 }
 
+type metadataSender interface {
+	SendOneWithMetadata(context.Context, string, models.Project, models.Component, string, string, string, string, models.DaliConfig, transfer.EventSink) models.TransferResult
+}
+
 func NewService(builder componentBuilder, packager *packaging.Service, senders ...componentSender) *Service {
 	service := &Service{builder: builder, packager: packager}
 	if len(senders) > 0 {
@@ -39,7 +43,7 @@ func NewService(builder componentBuilder, packager *packaging.Service, senders .
 
 // PrepareRun validates the selected project/components and creates initial state.
 func (s *Service) PrepareRun(runID string, project models.Project, request models.PackageRequest) (models.ReleaseRun, error) {
-	plan, err := s.packager.Plan(project, request.ComponentIDs, request.Version)
+	plan, err := s.packager.PlanRequest(project, request)
 	if err != nil {
 		return models.ReleaseRun{}, err
 	}
@@ -96,7 +100,8 @@ func (s *Service) ExecuteBuildPackageAndSend(ctx context.Context, run models.Rel
 }
 
 func (s *Service) execute(ctx context.Context, run models.ReleaseRun, project models.Project, request models.PackageRequest, settings *models.DaliConfig, emit func(models.BuildEvent)) models.ReleaseRun {
-	plan, err := s.packager.Plan(project, request.ComponentIDs, run.Version)
+	request.Version = run.Version
+	plan, err := s.packager.PlanRequest(project, request)
 	if err != nil {
 		run.Status = models.ReleaseRunStatusFailed
 		run.Error = err.Error()
@@ -177,7 +182,7 @@ func (s *Service) execute(ctx context.Context, run models.ReleaseRun, project mo
 		state.PackageMessage = "Packaging..."
 		s.emitReleaseState(emit, run, *state)
 		item := items[component.ID]
-		packageResult := s.packager.PackageOne(ctx, run.ID, project, component, buildResult.OutputPath, item.PackagePath, request.Overwrite)
+		packageResult := s.packager.PackageOneWithMetadata(ctx, run.ID, project, component, buildResult.OutputPath, item.PackagePath, request.Overwrite, item.FilenameTemplate, item.ResolvedFilename, run.Version)
 		state.PackageResult = &packageResult
 		state.PackageStatus = packageResult.Status
 		state.PackageMessage = packageResult.Error
@@ -215,7 +220,7 @@ func (s *Service) execute(ctx context.Context, run models.ReleaseRun, project mo
 		state.TransferStatus = models.TransferStatusSending
 		state.TransferMessage = "Sending..."
 		s.emitReleaseState(emit, run, *state)
-		transferResult := s.sender.SendOne(ctx, run.ID, project, component, packageResult.PackagePath, *settings, func(event models.BuildEvent) {
+		transferResult := s.sendOne(ctx, run.ID, project, component, packageResult.PackagePath, item.FilenameTemplate, item.ResolvedFilename, run.Version, *settings, func(event models.BuildEvent) {
 			event.Phase = transfer.Phase
 			event.Version = run.Version
 			s.emit(emit, event)
@@ -244,6 +249,13 @@ func (s *Service) execute(ctx context.Context, run models.ReleaseRun, project mo
 		run.Status = models.ReleaseRunStatusCompleted
 	}
 	return s.finish(run, emit)
+}
+
+func (s *Service) sendOne(ctx context.Context, runID string, project models.Project, component models.Component, packagePath, filenameTemplate, resolvedFilename, version string, settings models.DaliConfig, emit transfer.EventSink) models.TransferResult {
+	if sender, ok := s.sender.(metadataSender); ok {
+		return sender.SendOneWithMetadata(ctx, runID, project, component, packagePath, filenameTemplate, resolvedFilename, version, settings, emit)
+	}
+	return s.sender.SendOne(ctx, runID, project, component, packagePath, settings, emit)
 }
 
 func (s *Service) finish(run models.ReleaseRun, emit func(models.BuildEvent)) models.ReleaseRun {

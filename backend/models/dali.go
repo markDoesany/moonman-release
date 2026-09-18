@@ -38,28 +38,33 @@ const (
 
 // TransferRequest identifies packaged artifacts to send.
 type TransferRequest struct {
-	ProjectID    string   `json:"projectId"`
-	ComponentIDs []string `json:"componentIds"`
-	Version      string   `json:"version"`
+	ProjectID        string            `json:"projectId"`
+	ComponentIDs     []string          `json:"componentIds"`
+	Version          string            `json:"version"`
+	FilenameTemplate string            `json:"filenameTemplate,omitempty"`
+	PackageNames     map[string]string `json:"packageNames,omitempty"`
 }
 
 // TransferPlanItem describes the archive that will be sent.
 type TransferPlanItem struct {
-	ComponentID   string `json:"componentId"`
-	ComponentName string `json:"componentName"`
-	Selected      bool   `json:"selected"`
-	Enabled       bool   `json:"enabled"`
-	PackagePath   string `json:"packagePath"`
-	Exists        bool   `json:"exists"`
-	Error         string `json:"error,omitempty"`
+	ComponentID      string `json:"componentId"`
+	ComponentName    string `json:"componentName"`
+	Selected         bool   `json:"selected"`
+	Enabled          bool   `json:"enabled"`
+	PackagePath      string `json:"packagePath"`
+	FilenameTemplate string `json:"filenameTemplate,omitempty"`
+	ResolvedFilename string `json:"resolvedFilename,omitempty"`
+	Exists           bool   `json:"exists"`
+	Error            string `json:"error,omitempty"`
 }
 
 type TransferPlan struct {
-	ProjectID   string             `json:"projectId"`
-	ProjectName string             `json:"projectName"`
-	Version     string             `json:"version"`
-	Components  []TransferPlanItem `json:"components"`
-	HasMissing  bool               `json:"hasMissing"`
+	ProjectID        string             `json:"projectId"`
+	ProjectName      string             `json:"projectName"`
+	Version          string             `json:"version"`
+	FilenameTemplate string             `json:"filenameTemplate"`
+	Components       []TransferPlanItem `json:"components"`
+	HasMissing       bool               `json:"hasMissing"`
 }
 
 type TransferComponentState struct {
@@ -84,42 +89,48 @@ type TransferRun struct {
 }
 
 type TransferResult struct {
-	ProjectID     string         `json:"projectId"`
-	ProjectName   string         `json:"projectName"`
-	ComponentID   string         `json:"componentId"`
-	ComponentName string         `json:"componentName"`
-	Success       bool           `json:"success"`
-	Status        TransferStatus `json:"status"`
-	PackagePath   string         `json:"packagePath"`
-	Executable    string         `json:"executable"`
-	Arguments     []string       `json:"arguments"`
-	PeerName      string         `json:"peerName,omitempty"`
-	PeerAddress   string         `json:"peerAddress,omitempty"`
-	ExitCode      int            `json:"exitCode"`
-	StartTime     time.Time      `json:"startTime"`
-	EndTime       time.Time      `json:"endTime"`
-	DurationMs    int64          `json:"durationMs"`
-	Error         string         `json:"error,omitempty"`
+	ProjectID        string         `json:"projectId"`
+	ProjectName      string         `json:"projectName"`
+	ComponentID      string         `json:"componentId"`
+	ComponentName    string         `json:"componentName"`
+	Success          bool           `json:"success"`
+	Status           TransferStatus `json:"status"`
+	PackagePath      string         `json:"packagePath"`
+	Version          string         `json:"version"`
+	FilenameTemplate string         `json:"filenameTemplate,omitempty"`
+	ResolvedFilename string         `json:"resolvedFilename,omitempty"`
+	Executable       string         `json:"executable"`
+	Arguments        []string       `json:"arguments"`
+	PeerName         string         `json:"peerName,omitempty"`
+	PeerAddress      string         `json:"peerAddress,omitempty"`
+	ExitCode         int            `json:"exitCode"`
+	StartTime        time.Time      `json:"startTime"`
+	EndTime          time.Time      `json:"endTime"`
+	DurationMs       int64          `json:"durationMs"`
+	Error            string         `json:"error,omitempty"`
 }
 
 type TransferRecord struct {
-	Timestamp      time.Time      `json:"timestamp"`
-	RunID          string         `json:"runId"`
-	ProjectID      string         `json:"projectId"`
-	ProjectName    string         `json:"projectName"`
-	ComponentID    string         `json:"componentId"`
-	ComponentName  string         `json:"componentName"`
-	PackagePath    string         `json:"packagePath"`
-	Executable     string         `json:"executable"`
-	Arguments      []string       `json:"arguments"`
-	PeerName       string         `json:"peerName,omitempty"`
-	PeerAddress    string         `json:"peerAddress,omitempty"`
-	ExitCode       int            `json:"exitCode"`
-	StartTime      time.Time      `json:"startTime"`
-	EndTime        time.Time      `json:"endTime"`
-	DurationMs     int64          `json:"durationMs"`
-	Success        bool           `json:"success"`
-	Status         TransferStatus `json:"status"`
-	Error          string         `json:"error,omitempty"`
-	TechnicalError string         `json:"technicalError,omitempty"`
+	Timestamp        time.Time      `json:"timestamp"`
+	RunID            string         `json:"runId"`
+	ProjectID        string         `json:"projectId"`
+	ProjectName      string         `json:"projectName"`
+	ComponentID      string         `json:"componentId"`
+	ComponentName    string         `json:"componentName"`
+	PackagePath      string         `json:"packagePath"`
+	Version          string         `json:"version"`
+	FilenameTemplate string         `json:"filenameTemplate,omitempty"`
+	ResolvedFilename string         `json:"resolvedFilename,omitempty"`
+	Executable       string         `json:"executable"`
+	Arguments        []string       `json:"arguments"`
+	PeerName         string         `json:"peerName,omitempty"`
+	PeerAddress      string         `json:"peerAddress,omitempty"`
+	ExitCode         int            `json:"exitCode"`
+	StartTime        time.Time      `json:"startTime"`
+	EndTime          time.Time      `json:"endTime"`
+	DurationMs       int64          `json:"durationMs"`
+	Success          bool           `json:"success"`
+	Status           TransferStatus `json:"status"`
+	Error            string         `json:"error,omitempty"`
+	TechnicalError   string         `json:"technicalError,omitempty"`
 }

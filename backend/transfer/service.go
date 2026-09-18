@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -114,7 +115,11 @@ func newServiceWithRunner(logger *logging.Logger, history *logging.JSONLWriter, 
 
 // Plan resolves packaged artifacts and reports any files that are not ready to send.
 func (s *Service) Plan(project models.Project, componentIDs []string, version string) (models.TransferPlan, error) {
-	packagePlan, err := s.packager.Plan(project, componentIDs, version)
+	return s.PlanRequest(project, models.TransferRequest{ProjectID: project.ID, ComponentIDs: componentIDs, Version: version})
+}
+
+func (s *Service) PlanRequest(project models.Project, request models.TransferRequest) (models.TransferPlan, error) {
+	packagePlan, err := s.packager.PlanRequest(project, models.PackageRequest{ProjectID: project.ID, ComponentIDs: request.ComponentIDs, Version: request.Version, FilenameTemplate: request.FilenameTemplate, PackageNames: request.PackageNames})
 	if err != nil {
 		return models.TransferPlan{}, err
 	}
@@ -122,11 +127,13 @@ func (s *Service) Plan(project models.Project, componentIDs []string, version st
 	hasMissing := false
 	for _, item := range packagePlan.Components {
 		transferItem := models.TransferPlanItem{
-			ComponentID:   item.ComponentID,
-			ComponentName: item.ComponentName,
-			Selected:      item.Selected,
-			Enabled:       item.Enabled,
-			PackagePath:   item.PackagePath,
+			ComponentID:      item.ComponentID,
+			ComponentName:    item.ComponentName,
+			Selected:         item.Selected,
+			Enabled:          item.Enabled,
+			PackagePath:      item.PackagePath,
+			FilenameTemplate: item.FilenameTemplate,
+			ResolvedFilename: item.ResolvedFilename,
 		}
 		if item.Selected && item.Enabled {
 			info, statErr := os.Stat(item.PackagePath)
@@ -139,11 +146,11 @@ func (s *Service) Plan(project models.Project, componentIDs []string, version st
 		}
 		items = append(items, transferItem)
 	}
-	return models.TransferPlan{ProjectID: packagePlan.ProjectID, ProjectName: packagePlan.ProjectName, Version: packagePlan.Version, Components: items, HasMissing: hasMissing}, nil
+	return models.TransferPlan{ProjectID: packagePlan.ProjectID, ProjectName: packagePlan.ProjectName, Version: packagePlan.Version, FilenameTemplate: packagePlan.FilenameTemplate, Components: items, HasMissing: hasMissing}, nil
 }
 
 func (s *Service) PrepareRun(runID string, project models.Project, request models.TransferRequest) (models.TransferRun, error) {
-	plan, err := s.Plan(project, request.ComponentIDs, request.Version)
+	plan, err := s.PlanRequest(project, request)
 	if err != nil {
 		return models.TransferRun{}, err
 	}
@@ -171,7 +178,8 @@ func (s *Service) PrepareRun(runID string, project models.Project, request model
 }
 
 func (s *Service) Execute(ctx context.Context, run models.TransferRun, project models.Project, request models.TransferRequest, settings models.DaliConfig, emit EventSink) models.TransferRun {
-	plan, err := s.Plan(project, request.ComponentIDs, run.Version)
+	request.Version = run.Version
+	plan, err := s.PlanRequest(project, request)
 	if err != nil {
 		run.Status = models.TransferRunStatusFailed
 		run.Error = err.Error()
@@ -215,7 +223,7 @@ func (s *Service) Execute(ctx context.Context, run models.TransferRun, project m
 		state.Status = models.TransferStatusSending
 		state.Message = "Sending..."
 		s.emitState(emit, run, *state, EventComponentStarted)
-		result := s.SendOne(ctx, run.ID, project, component, item.PackagePath, settings, emit)
+		result := s.SendOneWithMetadata(ctx, run.ID, project, component, item.PackagePath, item.FilenameTemplate, item.ResolvedFilename, run.Version, settings, emit)
 		state.Result = &result
 		state.Status = result.Status
 		state.Message = result.Error
@@ -243,13 +251,17 @@ func (s *Service) Execute(ctx context.Context, run models.TransferRun, project m
 }
 
 func (s *Service) SendOne(ctx context.Context, runID string, project models.Project, component models.Component, packagePath string, settings models.DaliConfig, emit EventSink) models.TransferResult {
+	return s.SendOneWithMetadata(ctx, runID, project, component, packagePath, "", filepath.Base(packagePath), "", settings, emit)
+}
+
+func (s *Service) SendOneWithMetadata(ctx context.Context, runID string, project models.Project, component models.Component, packagePath, filenameTemplate, resolvedFilename, version string, settings models.DaliConfig, emit EventSink) models.TransferResult {
 	started := time.Now()
 	executable := strings.TrimSpace(settings.Executable)
 	if executable == "" {
 		executable = models.DefaultDaliConfig().Executable
 	}
 	args, err := commandArgs(packagePath, settings)
-	result := models.TransferResult{ProjectID: project.ID, ProjectName: project.Name, ComponentID: component.ID, ComponentName: component.Name, PackagePath: packagePath, Executable: executable, Arguments: args, PeerName: settings.PeerName, PeerAddress: settings.PeerAddress, Status: models.TransferStatusFailed, ExitCode: -1, StartTime: started}
+	result := models.TransferResult{ProjectID: project.ID, ProjectName: project.Name, ComponentID: component.ID, ComponentName: component.Name, PackagePath: packagePath, Version: version, FilenameTemplate: filenameTemplate, ResolvedFilename: resolvedFilename, Executable: executable, Arguments: args, PeerName: settings.PeerName, PeerAddress: settings.PeerAddress, Status: models.TransferStatusFailed, ExitCode: -1, StartTime: started}
 	finish := func(technical error) models.TransferResult {
 		result.EndTime = time.Now()
 		result.DurationMs = result.EndTime.Sub(result.StartTime).Milliseconds()
@@ -376,7 +388,7 @@ func (s *Service) writeRecord(runID string, result models.TransferResult, techni
 	if s.history == nil {
 		return
 	}
-	record := models.TransferRecord{Timestamp: time.Now(), RunID: runID, ProjectID: result.ProjectID, ProjectName: result.ProjectName, ComponentID: result.ComponentID, ComponentName: result.ComponentName, PackagePath: result.PackagePath, Executable: result.Executable, Arguments: result.Arguments, PeerName: result.PeerName, PeerAddress: result.PeerAddress, ExitCode: result.ExitCode, StartTime: result.StartTime, EndTime: result.EndTime, DurationMs: result.DurationMs, Success: result.Success, Status: result.Status, Error: result.Error}
+	record := models.TransferRecord{Timestamp: time.Now(), RunID: runID, ProjectID: result.ProjectID, ProjectName: result.ProjectName, ComponentID: result.ComponentID, ComponentName: result.ComponentName, PackagePath: result.PackagePath, Version: result.Version, FilenameTemplate: result.FilenameTemplate, ResolvedFilename: result.ResolvedFilename, Executable: result.Executable, Arguments: result.Arguments, PeerName: result.PeerName, PeerAddress: result.PeerAddress, ExitCode: result.ExitCode, StartTime: result.StartTime, EndTime: result.EndTime, DurationMs: result.DurationMs, Success: result.Success, Status: result.Status, Error: result.Error}
 	if technical != nil {
 		record.TechnicalError = technical.Error()
 	}
