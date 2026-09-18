@@ -27,7 +27,7 @@ func testPaths(t *testing.T) Paths {
 	}
 }
 
-func TestLoadSeedsSampleConfiguration(t *testing.T) {
+func TestLoadInitializesEmptyConfiguration(t *testing.T) {
 	paths := testPaths(t)
 	service := NewService(paths, logging.New(paths.LogFile))
 
@@ -38,11 +38,11 @@ func TestLoadSeedsSampleConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Projects() error = %v", err)
 	}
-	if len(projects) != 1 || projects[0].ID != "lokalstore" {
-		t.Fatalf("unexpected seeded projects: %+v", projects)
+	if len(projects) != 0 {
+		t.Fatalf("unexpected initialized projects: %+v", projects)
 	}
 	if _, err := os.Stat(paths.ConfigFile); err != nil {
-		t.Fatalf("seeded configuration was not written: %v", err)
+		t.Fatalf("initialized configuration was not written: %v", err)
 	}
 }
 

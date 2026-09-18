@@ -2,7 +2,6 @@ package config
 
 import (
 	"bytes"
-	"embed"
 	"errors"
 	"fmt"
 	"os"
@@ -16,9 +15,6 @@ import (
 	"release-launcher/backend/logging"
 	"release-launcher/backend/models"
 )
-
-//go:embed sample_projects.yaml
-var sampleFS embed.FS
 
 // Paths contains all application-local persistent paths.
 type Paths struct {
@@ -90,7 +86,7 @@ func NewService(paths Paths, logger *logging.Logger) *Service {
 	return &Service{paths: paths, logger: logger}
 }
 
-// Load reads the primary configuration, seeds missing configuration, or recovers a valid backup.
+// Load reads the primary configuration, initializes missing configuration, or recovers a valid backup.
 func (s *Service) Load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -101,21 +97,15 @@ func (s *Service) Load() error {
 
 	contents, err := os.ReadFile(s.paths.ConfigFile)
 	if errors.Is(err, os.ErrNotExist) {
-		contents, err = sampleFS.ReadFile("sample_projects.yaml")
-		if err != nil {
-			return fmt.Errorf("read embedded sample configuration: %w", err)
-		}
-		projects, dali, err := parseAndValidate(contents)
-		if err != nil {
-			return fmt.Errorf("validate embedded sample configuration: %w", err)
-		}
+		projects := []models.Project{}
+		dali := models.DefaultDaliConfig()
 		s.data = projects
 		s.dali = dali
 		s.loaded = true
 		if err := s.writeLocked(projects, dali, false); err != nil {
-			return fmt.Errorf("seed configuration: %w", err)
+			return fmt.Errorf("initialize configuration: %w", err)
 		}
-		s.logger.Info("Configuration seeded with LokalStore sample")
+		s.logger.Info("Configuration initialized with no projects")
 		s.logger.Info("Configuration loaded")
 		return nil
 	}
